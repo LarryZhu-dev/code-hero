@@ -99,12 +99,13 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, l
     target.currentHp = Math.min(target.currentHp, maxEnemyHp);
 };
 
-export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleEntity, logPush: (msg: string) => void): void => {
+// Returns TRUE if skill was successfully cast
+export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleEntity, logPush: (msg: string) => void): boolean => {
     const manaCost = calculateManaCost(skill);
     
     if (caster.currentMana < manaCost) {
         logPush(`${caster.config.name} 尝试使用 ${skill.name} 但法力不足!`);
-        return;
+        return false;
     }
 
     logPush(`${caster.config.name} 使用了 ${skill.name}!`);
@@ -167,6 +168,8 @@ export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleE
     caster.currentHp = Math.min(caster.currentHp, maxHp);
     const maxEnemyHp = getTotalStat(target, StatType.HP);
     target.currentHp = Math.min(target.currentHp, maxEnemyHp);
+    
+    return true;
 };
 
 export const checkConditions = (skill: Skill, self: BattleEntity, enemy: BattleEntity, turn: number): boolean => {

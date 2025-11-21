@@ -52,7 +52,6 @@ export interface Effect {
     type: EffectType;
     target: TargetType;
     formula: Formula; 
-    // Mana cost is now calculated dynamically
 }
 
 export interface Skill {
@@ -71,6 +70,8 @@ export interface CharacterConfig {
     skills: Skill[];
 }
 
+export type BattleMode = 'LOCAL_BOT' | 'ONLINE_PVP';
+
 export interface BattleState {
     turn: number;
     log: string[];
@@ -80,6 +81,8 @@ export interface BattleState {
     phase: 'WAITING' | 'ACTION_SELECTION' | 'EXECUTING' | 'FINISHED';
     winnerId?: string;
     timeLeft: number;
+    mode: BattleMode;
+    roomId?: string;
 }
 
 export interface BattleEntity {
@@ -95,7 +98,7 @@ export const INITIAL_STATS: CharacterStats = {
     percent: Object.values(StatType).reduce((acc, key) => ({ ...acc, [key]: 0 }), {} as any),
 };
 
-// Initialize minimal viable stats to prevent division by zero errors
+// Initialize minimal viable stats
 INITIAL_STATS.base[StatType.HP] = 0;
 INITIAL_STATS.base[StatType.SPEED] = 0;
-INITIAL_STATS.base[StatType.CRIT_DMG] = 0; // 150% default
+INITIAL_STATS.base[StatType.CRIT_DMG] = 0;

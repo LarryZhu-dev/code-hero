@@ -1,42 +1,60 @@
 import mqtt from 'mqtt';
+import { BattleState, CharacterConfig } from '../types';
 
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
+
+type MessageHandler = (topic: string, payload: any) => void;
 
 export class NetworkService {
     client: mqtt.MqttClient | null = null;
     roomId: string = '';
     playerId: string = '';
-    onMessage: (topic: string, payload: any) => void = () => {};
+    onMessage: MessageHandler = () => {};
 
-    connect(roomId: string, playerId: string, onMessage: (t: string, p: any) => void) {
+    constructor() {
+        this.playerId = crypto.randomUUID().slice(0, 8);
+    }
+
+    connect(roomId: string, onMessage: MessageHandler) {
         this.roomId = roomId;
-        this.playerId = playerId;
         this.onMessage = onMessage;
 
+        // Reuse ID for reconnection stability
         this.client = mqtt.connect(BROKER_URL, {
-            clientId: `cw_${playerId}_${Math.random().toString(16).slice(2, 8)}`,
+            clientId: `cw_client_${this.playerId}_${Math.random().toString(16).slice(2, 5)}`,
             clean: true,
-            keepalive: 60,
+            keepalive: 30,
         });
 
         this.client.on('connect', () => {
-            console.log('Connected to EMQX');
+            console.log('Connected to MQTT Broker');
             this.client?.subscribe(`cw/room/${roomId}/#`);
-            this.publish('join', { id: playerId });
+            this.publish('join', { id: this.playerId });
         });
 
         this.client.on('message', (topic, msg) => {
             try {
                 const data = JSON.parse(msg.toString());
-                this.onMessage(topic, data);
+                // Ignore my own messages
+                if (data.sender === this.playerId) return;
+                
+                // Extract action from topic: cw/room/{id}/{action}
+                const parts = topic.split('/');
+                const action = parts[parts.length - 1];
+                
+                this.onMessage(action, data);
             } catch (e) {
-                console.error('Failed to parse MQTT msg', e);
+                console.error('MQTT Parse Error', e);
             }
+        });
+
+        this.client.on('error', (err) => {
+            console.error('MQTT Error', err);
         });
     }
 
     publish(action: string, data: any) {
-        if (this.client) {
+        if (this.client && this.roomId) {
             this.client.publish(`cw/room/${this.roomId}/${action}`, JSON.stringify({
                 sender: this.playerId,
                 ...data
@@ -45,7 +63,19 @@ export class NetworkService {
     }
 
     disconnect() {
-        this.client?.end();
+        if (this.client) {
+            this.publish('leave', { id: this.playerId });
+            this.client.end();
+            this.client = null;
+        }
+    }
+    
+    sendState(state: BattleState) {
+        this.publish('sync_state', { state });
+    }
+    
+    sendHandshake(char: CharacterConfig) {
+        this.publish('handshake', { char });
     }
 }
 

@@ -1,124 +1,219 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
+import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
-import { CharacterConfig, BattleState, BattleEntity, StatType, Skill } from './types';
+import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode } from './types';
 import { processSkill, checkConditions, getTotalStat, calculateManaCost, processBasicAttack } from './utils/gameEngine';
-import { Swords, Edit, Upload, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap } from 'lucide-react';
+import { StorageService } from './services/storage';
+import { net } from './services/mqtt';
+import { Swords, Edit, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe } from 'lucide-react';
+
+type AppView = 'MENU' | 'HERO_LIST' | 'EDITOR' | 'BATTLE_SETUP' | 'LOBBY' | 'BATTLE';
 
 const App: React.FC = () => {
-    const [mode, setMode] = useState<'MENU' | 'EDITOR' | 'BATTLE' | 'LOBBY'>('MENU');
+    const [view, setView] = useState<AppView>('MENU');
     const [myChar, setMyChar] = useState<CharacterConfig | null>(null);
     const [battleState, setBattleState] = useState<BattleState | null>(null);
-    const [playerId] = useState(crypto.randomUUID());
+    const [playerId] = useState(net.playerId); 
     const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
     
-    // -- Editor Handling --
+    // Lobby State
+    const [roomId, setRoomId] = useState('');
+    const [lobbyStatus, setLobbyStatus] = useState('');
+    const [isHost, setIsHost] = useState(false);
+
+    // -- Character Management --
+    
     const handleSaveChar = (char: CharacterConfig) => {
+        StorageService.save(char);
         setMyChar(char);
-        setMode('MENU');
+        setView('HERO_LIST');
     };
 
-    const handleImport = () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.onchange = async (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (file) {
-                const text = await file.text();
-                try {
-                    const json = atob(text);
-                    const char = JSON.parse(json);
-                    setMyChar(char);
-                } catch (err) {
-                    alert('无效的配置文件');
+    const startBattleSetup = (char: CharacterConfig) => {
+        setMyChar(char);
+        setView('BATTLE_SETUP');
+    };
+
+    // -- Battle Initialization --
+
+    const startLocalBotBattle = () => {
+        if (!myChar) return;
+        const dummy: CharacterConfig = JSON.parse(JSON.stringify(myChar));
+        dummy.id = 'bot_enemy';
+        dummy.name = "训练机器人";
+        dummy.avatarColor = '#64748b';
+        
+        initBattle(myChar, dummy, 'LOCAL_BOT', true);
+    };
+
+    const startOnlineLobby = () => {
+        if (!roomId) {
+            alert("请输入房间号");
+            return;
+        }
+        setLobbyStatus('正在连接...');
+        setView('LOBBY');
+        
+        net.connect(roomId, (action, data) => {
+            if (action === 'join') {
+                // Someone joined my room
+                setLobbyStatus(`玩家 ${data.id.slice(0,4)} 加入了! 正在同步数据...`);
+                setIsHost(true);
+                // As host, I send my config first
+                if (myChar) net.sendHandshake(myChar);
+            } 
+            else if (action === 'handshake') {
+                // Received opponent char
+                const enemyChar = data.char;
+                setLobbyStatus('数据同步完成，战斗开始!');
+                
+                // Determine Player 1 based on sorting IDs to be deterministic
+                // Or simpler: Host is P1.
+                // If I am host, I am P1. If I just joined (not host), I wait for Host to sync state?
+                // Let's simplify: The person who joined sends handshake first?
+                // Actually:
+                // 1. Joiner connects -> publishes 'join'.
+                // 2. Host sees 'join' -> publishes 'handshake' with HostChar.
+                // 3. Joiner sees 'handshake' -> sets Host as Enemy, publishes 'handshake' with JoinerChar.
+                // 4. Host sees 'handshake' -> sets Joiner as Enemy, STARTS BATTLE, sends initial state.
+                
+                if (isHost) {
+                    // I am host, I received joiner's char (step 4)
+                    initBattle(myChar!, enemyChar, 'ONLINE_PVP', true);
+                    // State will be synced via useEffect
+                } else {
+                    // I am joiner, I received host's char (step 3)
+                    if (myChar) net.sendHandshake(myChar);
+                    // Wait for sync_state to start
                 }
             }
-        };
-        input.click();
+            else if (action === 'sync_state') {
+                setBattleState(data.state);
+                if (view !== 'BATTLE') setView('BATTLE');
+            }
+        });
     };
 
-    // -- Battle Logic --
-    
-    const initBattle = (enemyConfig: CharacterConfig) => {
-        if (!myChar) return;
+    const initBattle = (p1Config: CharacterConfig, p2Config: CharacterConfig, mode: BattleMode, isP1Me: boolean) => {
+        const p1Speed = getTotalStat({ config: p1Config } as any, StatType.SPEED);
+        const p2Speed = getTotalStat({ config: p2Config } as any, StatType.SPEED);
+        const p1First = p1Speed >= p2Speed;
 
-        // Speed check for turn order
-        const mySpeed = getTotalStat({ config: myChar } as any, StatType.SPEED);
-        const enemySpeed = getTotalStat({ config: enemyConfig } as any, StatType.SPEED);
-        const p1First = mySpeed >= enemySpeed;
-
-        const p1Entity: BattleEntity = { 
-            id: playerId, 
-            config: myChar, 
-            currentHp: getTotalStat({ config: myChar } as any, StatType.HP),
-            currentMana: getTotalStat({ config: myChar } as any, StatType.MANA),
+        const entity1: BattleEntity = { 
+            id: isP1Me ? playerId : 'enemy',
+            config: p1Config, 
+            currentHp: getTotalStat({ config: p1Config } as any, StatType.HP),
+            currentMana: getTotalStat({ config: p1Config } as any, StatType.MANA),
             buffs: [] 
         };
-        const p2Entity: BattleEntity = { 
-            id: 'enemy', 
-            config: enemyConfig, 
-            currentHp: getTotalStat({ config: enemyConfig } as any, StatType.HP),
-            currentMana: getTotalStat({ config: enemyConfig } as any, StatType.MANA),
+        const entity2: BattleEntity = { 
+            id: isP1Me ? 'enemy' : playerId,
+            config: p2Config, 
+            currentHp: getTotalStat({ config: p2Config } as any, StatType.HP),
+            currentMana: getTotalStat({ config: p2Config } as any, StatType.MANA),
             buffs: [] 
         };
+        
+        // In Local mode, 'enemy' is the bot.
+        // In Online mode, IDs must match network IDs for ownership check.
+        // Let's fix IDs for Online:
+        let realP1 = entity1;
+        let realP2 = entity2;
+        
+        if (mode === 'ONLINE_PVP') {
+            // If I am host (P1), my ID is playerId. Enemy is the other guy.
+            // Actually, let's use the ID from config or generated one? 
+            // Simplest: Host is always P1 in state.
+            realP1 = { ...entity1, id: isHost ? playerId : 'opponent' }; 
+            realP2 = { ...entity2, id: isHost ? 'opponent' : playerId };
+        }
 
-        setBattleState({
+        const initialState: BattleState = {
             turn: 1,
             log: ['战斗开始！'],
-            p1: p1First ? p1Entity : p2Entity,
-            p2: p1First ? p2Entity : p1Entity,
-            activePlayerId: p1First ? p1Entity.id : p2Entity.id,
+            p1: p1First ? realP1 : realP2,
+            p2: p1First ? realP2 : realP1,
+            activePlayerId: p1First ? realP1.id : realP2.id,
             phase: 'ACTION_SELECTION',
-            timeLeft: 60
-        });
-        setMode('BATTLE');
+            timeLeft: 60,
+            mode: mode,
+            roomId: roomId
+        };
+
+        setBattleState(initialState);
+        setView('BATTLE');
         setSelectedSkillIndex(0);
+        
+        if (mode === 'ONLINE_PVP' && isHost) {
+            net.sendState(initialState);
+        }
     };
+
+    // -- Core Turn Execution --
 
     const executeTurn = useCallback((skillId: string) => {
         if (!battleState) return;
+        
+        // Check if it's actually my turn (or I am the authority for the bot)
+        const isMyTurn = battleState.activePlayerId === playerId;
+        const isBotTurn = battleState.mode === 'LOCAL_BOT' && battleState.activePlayerId === 'bot_enemy';
+        
+        // In Online mode, only the active player calculates and broadcasts.
+        if (battleState.mode === 'ONLINE_PVP' && !isMyTurn) return;
 
         const newState = { ...battleState };
         const isP1Active = newState.activePlayerId === newState.p1.id;
         const active = isP1Active ? newState.p1 : newState.p2;
-        const passive = isP1Active ? newState.p1 : newState.p2; // Corrected reference? No wait.
-        // active is P1 -> passive is P2
         const opponent = isP1Active ? newState.p2 : newState.p1;
 
+        // 1. MANA CHECK
+        if (skillId !== 'basic_attack') {
+            const skill = active.config.skills.find(s => s.id === skillId);
+            if (skill) {
+                const cost = calculateManaCost(skill);
+                if (active.currentMana < cost) {
+                    // If local player, alert. If bot, this shouldn't happen due to AI logic.
+                    if (isMyTurn) alert("法力值不足！");
+                    return; // STOP execution
+                }
+            }
+        }
+
+        // 2. Action Processing
         if (skillId === 'basic_attack') {
             processBasicAttack(active, opponent, (msg) => newState.log.push(msg));
         } else {
-            // Process Selected Skill
             const skill = active.config.skills.find(s => s.id === skillId);
             if (skill) {
-                processSkill(skill, active, opponent, (msg) => newState.log.push(msg));
+                const success = processSkill(skill, active, opponent, (msg) => newState.log.push(msg));
+                if (!success) return; // Double safety
             } else {
-                // Fallback
                 processBasicAttack(active, opponent, (msg) => newState.log.push(msg));
             }
         }
 
-        // 2. Check Death
+        // 3. Check Death
         if (opponent.currentHp <= 0) {
             newState.winnerId = active.id;
             newState.phase = 'FINISHED';
             newState.log.push(`${active.config.name} 获胜！`);
             setBattleState(newState);
+            if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
             return;
         }
 
-        // 3. End Turn cleanup
+        // 4. End Turn & Swap
         newState.turn += 1;
-        newState.activePlayerId = opponent.id; // Swap turn
+        newState.activePlayerId = opponent.id; 
         
-        // 4. Start Turn Trigger (Mana Regen) for the NEW active player
+        // 5. Regen & Passives for NEW Active Player
         const nextActive = newState.activePlayerId === newState.p1.id ? newState.p1 : newState.p2;
         const nextPassive = newState.activePlayerId === newState.p1.id ? newState.p2 : newState.p1;
 
         const manaRegen = getTotalStat(nextActive, StatType.MANA_REGEN);
         nextActive.currentMana = Math.min(getTotalStat(nextActive, StatType.MANA), nextActive.currentMana + manaRegen);
 
-        // 5. Process Passives for the NEW active player
         nextActive.config.skills.filter(s => s.isPassive).forEach(s => {
             if (checkConditions(s, nextActive, nextPassive, newState.turn)) {
                 newState.log.push(`被动触发: ${s.name}`);
@@ -132,14 +227,21 @@ const App: React.FC = () => {
              newState.phase = 'FINISHED';
              newState.log.push(`${nextActive.config.name} 获胜！`);
              setBattleState(newState);
+             if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
              return;
         }
 
         newState.phase = 'ACTION_SELECTION';
         newState.timeLeft = 60;
+        
         setBattleState(newState);
-        setSelectedSkillIndex(0); // Reset selection for next turn
-    }, [battleState]);
+        if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
+        
+        setSelectedSkillIndex(0); 
+
+    }, [battleState, playerId]);
+
+    // -- Side Effects --
 
     const handleSurrender = () => {
         if (!battleState) return;
@@ -149,55 +251,60 @@ const App: React.FC = () => {
         newState.phase = 'FINISHED';
         newState.log.push(`${myChar?.name || '玩家'} 认输了。`);
         setBattleState(newState);
+        if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
     };
 
-    // Battle Timer
+    // Timer
     useEffect(() => {
-        if (mode !== 'BATTLE' || !battleState || battleState.phase !== 'ACTION_SELECTION') return;
+        if (view !== 'BATTLE' || !battleState || battleState.phase !== 'ACTION_SELECTION' || battleState.winnerId) return;
         
         const timer = setInterval(() => {
             setBattleState(prev => {
                 if (!prev || prev.phase !== 'ACTION_SELECTION') return prev;
-                
-                if (prev.timeLeft <= 1) {
-                     return { ...prev, timeLeft: 0 };
-                }
+                if (prev.timeLeft <= 1) return { ...prev, timeLeft: 0 };
                 return { ...prev, timeLeft: prev.timeLeft - 1 };
             });
         }, 1000);
         return () => clearInterval(timer);
-    }, [mode, battleState?.phase]);
+    }, [view, battleState?.phase, battleState?.winnerId]);
 
-    // Watch for timeout to execute turn
+    // Timeout Action
     useEffect(() => {
         if (battleState && battleState.timeLeft === 0 && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId) {
-            executeTurn('basic_attack');
+            // Authority executes timeout action
+            if (battleState.mode === 'LOCAL_BOT' || battleState.activePlayerId === playerId) {
+                executeTurn('basic_attack');
+            }
         }
-    }, [battleState?.timeLeft, executeTurn, battleState?.phase, battleState?.winnerId, battleState]);
+    }, [battleState?.timeLeft, executeTurn, battleState?.phase, battleState?.mode, playerId, battleState]);
 
     // Bot Logic
     useEffect(() => {
-        if (battleState && battleState.phase === 'ACTION_SELECTION' && battleState.activePlayerId === 'enemy' && !battleState.winnerId) {
-            const enemy = battleState.p1.id === 'enemy' ? battleState.p1 : battleState.p2;
+        if (battleState && battleState.mode === 'LOCAL_BOT' && battleState.phase === 'ACTION_SELECTION' && battleState.activePlayerId === 'bot_enemy' && !battleState.winnerId) {
+            const enemy = battleState.p1.id === 'bot_enemy' ? battleState.p1 : battleState.p2;
+            
             const timer = setTimeout(() => {
                 const skills = enemy.config.skills.filter(s => !s.isPassive);
+                // Filter by affordability
                 const affordable = skills.filter(s => calculateManaCost(s) <= enemy.currentMana);
-                const useBasic = Math.random() < 0.2 || affordable.length === 0;
+                
+                // AI: 70% chance to use skill if available, 30% attack. If no mana, 100% attack.
+                const useSkill = affordable.length > 0 && Math.random() < 0.7;
 
-                if (useBasic) {
-                    executeTurn('basic_attack');
-                } else {
+                if (useSkill) {
                     const chosen = affordable[Math.floor(Math.random() * affordable.length)];
-                    executeTurn(chosen ? chosen.id : 'basic_attack');
+                    executeTurn(chosen.id);
+                } else {
+                    executeTurn('basic_attack');
                 }
-            }, 1500);
+            }, 800); // Fast but noticeable delay
             return () => clearTimeout(timer);
         }
     }, [battleState, executeTurn]);
 
-    // -- Keyboard Input for Battle --
+    // Keyboard Input
     useEffect(() => {
-        if (mode !== 'BATTLE' || !battleState || battleState.phase !== 'ACTION_SELECTION') return;
+        if (view !== 'BATTLE' || !battleState || battleState.phase !== 'ACTION_SELECTION') return;
         if (battleState.activePlayerId !== playerId) return;
 
         const activeEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
@@ -219,14 +326,18 @@ const App: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [mode, battleState, playerId, selectedSkillIndex, executeTurn]);
+    }, [view, battleState, playerId, selectedSkillIndex, executeTurn]);
 
+    // Helper for Description
     const getSkillDescription = (skill: Skill) => {
         if (skill.id === 'basic_attack') {
-            return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。";
+            return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
         }
-        if (skill.effects.length === 0) return "该模块为空，无任何效果。";
-        return skill.effects.map(e => {
+        const cost = calculateManaCost(skill);
+        let desc = `【消耗 ${cost} MP】`;
+        if (skill.effects.length === 0) return desc + " 该模块为空，无任何效果。";
+        
+        const effectsDesc = skill.effects.map(e => {
             const formatTarget = (t: string) => t === 'SELF' ? '己方' : '敌方';
             const actionMap: Record<string, string> = {
                 'DAMAGE_PHYSICAL': '物理伤害',
@@ -238,57 +349,128 @@ const App: React.FC = () => {
             const fb = e.formula.factorB;
             return `对${formatTarget(e.target)}造成 ${actionMap[e.type]} = ${formatTarget(fa.target)}.${fa.stat} ${e.formula.operator} ${formatTarget(fb.target)}.${fb.stat}`;
         }).join(' | ');
+        return desc + effectsDesc;
     };
 
-    // -- Render --
+    // -- RENDER --
 
     return (
-        <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col">
-            {mode === 'MENU' && (
-                <div className="flex flex-col items-center justify-center h-full gap-8">
-                    <h1 className="text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-600 retro-font mb-8">
-                        CODE WARRIORS
-                    </h1>
-                    
-                    <div className="grid grid-cols-2 gap-4 w-96">
-                        <button onClick={() => setMode('EDITOR')} className="flex flex-col items-center p-6 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-all group">
-                            <div className="w-16 h-16 rounded-full bg-blue-900/30 flex items-center justify-center mb-4 group-hover:bg-blue-900/50 transition-colors">
-                                <Edit size={32} className="text-blue-400" />
-                            </div>
-                            <span className="font-bold text-lg">编辑角色</span>
-                            <span className="text-xs text-slate-500 mt-1">{myChar ? myChar.name : '未选择'}</span>
-                        </button>
+        <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
+            {/* Top Bar */}
+            <div className="h-12 border-b border-slate-800 bg-slate-900/50 flex items-center px-6 justify-between select-none z-50">
+                <span className="retro-font text-blue-400 text-sm cursor-pointer" onClick={() => setView('MENU')}>CODE WARRIORS</span>
+                <div className="text-xs text-slate-600 font-mono">ID: {playerId.slice(0, 6)}</div>
+            </div>
 
-                        <button onClick={handleImport} className="flex flex-col items-center p-6 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-all group">
-                            <div className="w-16 h-16 rounded-full bg-green-900/30 flex items-center justify-center mb-4 group-hover:bg-green-900/50 transition-colors">
-                                <Upload size={32} className="text-green-400" />
-                            </div>
-                            <span className="font-bold text-lg">导入配置</span>
-                        </button>
+            {/* Main Content Area */}
+            <div className="flex-1 overflow-hidden relative">
+                
+                {view === 'MENU' && (
+                    <div className="flex flex-col items-center justify-center h-full gap-12 animate-in fade-in zoom-in duration-500">
+                        <h1 className="text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 retro-font drop-shadow-2xl">
+                            CODE WARRIORS
+                        </h1>
+                        
+                        <div className="flex gap-6">
+                            <button 
+                                onClick={() => setView('HERO_LIST')} 
+                                className="group relative w-64 h-40 bg-slate-800 rounded-2xl border border-slate-700 hover:border-blue-500 transition-all overflow-hidden flex flex-col items-center justify-center gap-4 shadow-2xl hover:-translate-y-2"
+                            >
+                                <div className="absolute inset-0 bg-blue-900/20 scale-0 group-hover:scale-100 transition-transform rounded-full blur-3xl"></div>
+                                <Users size={48} className="text-blue-400 relative z-10" />
+                                <span className="text-xl font-bold relative z-10">英雄名册</span>
+                                <span className="text-xs text-slate-500 relative z-10">创建 & 管理</span>
+                            </button>
+
+                            <button 
+                                onClick={() => setView('HERO_LIST')} // Reusing list to select char first
+                                className="group relative w-64 h-40 bg-slate-800 rounded-2xl border border-slate-700 hover:border-red-500 transition-all overflow-hidden flex flex-col items-center justify-center gap-4 shadow-2xl hover:-translate-y-2"
+                            >
+                                <div className="absolute inset-0 bg-red-900/20 scale-0 group-hover:scale-100 transition-transform rounded-full blur-3xl"></div>
+                                <Swords size={48} className="text-red-400 relative z-10" />
+                                <span className="text-xl font-bold relative z-10">开始战斗</span>
+                                <span className="text-xs text-slate-500 relative z-10">单机 / 联机</span>
+                            </button>
+                        </div>
                     </div>
+                )}
 
-                    {myChar && (
-                        <button 
-                            onClick={() => {
-                                const dummy = JSON.parse(JSON.stringify(myChar));
-                                dummy.name = "训练机器人";
-                                dummy.id = "enemy";
-                                initBattle(dummy);
-                            }}
-                            className="flex items-center gap-4 px-12 py-4 bg-red-600 hover:bg-red-500 rounded-full font-bold text-xl shadow-lg shadow-red-900/20 hover:scale-105 transition-all"
-                        >
-                            <Swords size={24} /> 进入战斗
-                        </button>
-                    )}
-                </div>
-            )}
+                {view === 'HERO_LIST' && (
+                    <CharacterList 
+                        onSelect={startBattleSetup}
+                        onEdit={(char) => { setMyChar(char); setView('EDITOR'); }}
+                        onBack={() => setView('MENU')}
+                    />
+                )}
 
-            {mode === 'EDITOR' && (
-                <CharacterEditor onSave={handleSaveChar} existing={myChar || undefined} />
-            )}
+                {view === 'EDITOR' && (
+                    <CharacterEditor 
+                        existing={myChar!} 
+                        onSave={handleSaveChar} 
+                    />
+                )}
 
-            {mode === 'BATTLE' && battleState && (
-                <div className="flex h-full">
+                {view === 'BATTLE_SETUP' && myChar && (
+                     <div className="flex flex-col items-center justify-center h-full gap-8 animate-in fade-in slide-in-from-right duration-300">
+                        <h2 className="text-3xl font-bold retro-font">选择战斗模式</h2>
+                        
+                        <div className="flex items-center gap-4 bg-slate-800 p-4 rounded-xl border border-slate-700 mb-4">
+                            <div className="w-12 h-12 rounded bg-blue-500" style={{backgroundColor: myChar.avatarColor}}></div>
+                            <div>
+                                <div className="text-xs text-slate-400">当前使用</div>
+                                <div className="font-bold text-xl">{myChar.name}</div>
+                            </div>
+                            <button onClick={() => setView('HERO_LIST')} className="ml-4 text-xs bg-slate-700 px-2 py-1 rounded hover:bg-slate-600">更换</button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                             <button onClick={startLocalBotBattle} className="w-64 p-6 bg-slate-800 hover:bg-emerald-900/30 border border-slate-600 hover:border-emerald-500 rounded-xl flex flex-col items-center gap-3 transition-all">
+                                <Cpu size={40} className="text-emerald-400"/>
+                                <span className="font-bold text-lg">人机训练</span>
+                                <span className="text-xs text-slate-500">VS AI BOT (本地)</span>
+                            </button>
+
+                            <div className="w-64 p-6 bg-slate-800 border border-slate-600 rounded-xl flex flex-col items-center gap-4">
+                                <Globe size={40} className="text-blue-400"/>
+                                <span className="font-bold text-lg">在线对战</span>
+                                <input 
+                                    className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-center font-mono text-sm w-full outline-none focus:border-blue-500"
+                                    placeholder="输入房间号 (如: 123)"
+                                    value={roomId}
+                                    onChange={e => setRoomId(e.target.value)}
+                                />
+                                <button 
+                                    onClick={startOnlineLobby}
+                                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold text-sm transition-colors"
+                                >
+                                    连接 / 创建
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <button onClick={() => setView('HERO_LIST')} className="mt-8 text-slate-500 hover:text-white">取消</button>
+                     </div>
+                )}
+
+                {view === 'LOBBY' && (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                        <div className="p-8 bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl animate-pulse">
+                            <h3 className="text-2xl font-bold mb-4 text-blue-400">Lobby: {roomId}</h3>
+                            <div className="flex items-center justify-center gap-4 mb-6">
+                                <div className="w-3 h-3 bg-green-500 rounded-full animate-bounce"></div>
+                                <div className="w-3 h-3 bg-green-500 rounded-full animate-bounce delay-75"></div>
+                                <div className="w-3 h-3 bg-green-500 rounded-full animate-bounce delay-150"></div>
+                            </div>
+                            <p className="text-slate-300 font-mono">{lobbyStatus}</p>
+                            <button onClick={() => { net.disconnect(); setView('BATTLE_SETUP'); }} className="mt-8 text-sm text-red-400 hover:text-red-300 border border-red-900/50 px-4 py-2 rounded hover:bg-red-900/20">
+                                取消连接
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {view === 'BATTLE' && battleState && (
+                    <div className="flex h-full">
                     {/* Battle Scene */}
                     <div className="flex-1 relative bg-slate-900 flex flex-col items-center justify-center p-8 overflow-hidden">
                         <div className="absolute top-4 text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10">
@@ -308,10 +490,13 @@ const App: React.FC = () => {
                         <BattleScene gameState={battleState} />
                         
                         {/* HUD */}
-                        <div className="w-[800px] mt-6 flex justify-between items-center bg-slate-950/50 p-4 rounded-xl border border-slate-800 backdrop-blur-sm">
+                        <div className="w-[800px] mt-6 flex justify-between items-center bg-slate-950/50 p-4 rounded-xl border border-slate-800 backdrop-blur-sm relative">
+                            {/* Active Indicator */}
+                            <div className={`absolute top-0 bottom-0 w-1 bg-yellow-500 shadow-[0_0_10px_yellow] transition-all duration-500 ${battleState.activePlayerId === battleState.p1.id ? 'left-0 rounded-l' : 'right-0 rounded-r'}`}></div>
+
                             {/* P1 Status */}
                             <div className={`flex gap-3 items-center transition-opacity duration-300 ${battleState.activePlayerId === battleState.p1.id ? 'opacity-100' : 'opacity-50 grayscale'}`}>
-                                <div className="w-12 h-12 rounded-lg bg-blue-600 shadow-lg border border-blue-400"></div>
+                                <div className="w-12 h-12 rounded-lg shadow-lg border border-blue-400" style={{backgroundColor: battleState.p1.config.avatarColor}}></div>
                                 <div>
                                     <div className="font-bold text-blue-100">{battleState.p1.config.name}</div>
                                     <div className="flex gap-3 text-xs font-mono">
@@ -324,7 +509,7 @@ const App: React.FC = () => {
                             <div className="flex flex-col items-center">
                                 <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Timer</div>
                                 <div className={`text-2xl font-mono font-bold px-4 py-1 rounded border ${battleState.timeLeft < 10 ? 'text-red-500 border-red-900 bg-red-950' : 'text-white border-slate-700 bg-slate-800'}`}>
-                                    {battleState.phase === 'ACTION_SELECTION' ? battleState.timeLeft : '--'}
+                                    {battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId ? battleState.timeLeft : '--'}
                                 </div>
                             </div>
 
@@ -337,12 +522,12 @@ const App: React.FC = () => {
                                         <span className="text-blue-400">MP: {Math.floor(battleState.p2.currentMana)}</span>
                                     </div>
                                 </div>
-                                <div className="w-12 h-12 rounded-lg bg-red-600 shadow-lg border border-red-400"></div>
+                                <div className="w-12 h-12 rounded-lg shadow-lg border border-red-400" style={{backgroundColor: battleState.p2.config.avatarColor}}></div>
                             </div>
                         </div>
 
                         {/* Controls - Separated UI */}
-                        {battleState.activePlayerId === playerId && battleState.phase === 'ACTION_SELECTION' && (
+                        {battleState.activePlayerId === playerId && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId && (
                             <div className="mt-8 w-full max-w-4xl flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-8 duration-500">
                                 
                                 {/* Skill Bar (Icons) */}
@@ -431,6 +616,14 @@ const App: React.FC = () => {
                             </div>
                         )}
                         
+                        {/* Waiting Indicator */}
+                        {battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId && !battleState.winnerId && (
+                             <div className="mt-8 text-slate-500 font-mono animate-pulse flex items-center gap-2">
+                                <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
+                                等待对手行动...
+                             </div>
+                        )}
+
                         {battleState.winnerId && (
                             <div className="absolute inset-0 bg-slate-950/90 flex items-center justify-center z-50 backdrop-blur-sm animate-in fade-in duration-1000">
                                 <div className="text-center transform scale-110">
@@ -438,10 +631,10 @@ const App: React.FC = () => {
                                         {battleState.winnerId === playerId ? 'VICTORY' : 'DEFEAT'}
                                     </h2>
                                     <button 
-                                        onClick={() => setMode('MENU')} 
+                                        onClick={() => { net.disconnect(); setView('HERO_LIST'); }} 
                                         className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold hover:bg-blue-50 hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)]"
                                     >
-                                        返回主菜单
+                                        返回名册
                                     </button>
                                 </div>
                             </div>
@@ -467,7 +660,8 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 </div>
-            )}
+                )}
+            </div>
         </div>
     );
 };
