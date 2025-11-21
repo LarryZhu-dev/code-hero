@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Copy of 代码勇士：编程战术",
+  "description": "一款深度的回合制策略游戏，你需要为角色的AI编写程序。包含 Pixi.js 战斗演示、复杂的数值构筑和在线 MQTT 多人对战。",
+  "requestFramePermissions": []
+}
