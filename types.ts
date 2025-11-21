@@ -35,13 +35,24 @@ export interface Condition {
 }
 
 export type EffectType = 'DAMAGE_PHYSICAL' | 'DAMAGE_MAGIC' | 'HEAL' | 'GAIN_MANA' | 'BUFF_STAT';
+export type FormulaOp = '+' | '-' | '*' | '/';
+
+export interface FormulaFactor {
+    target: TargetType;
+    stat: StatType;
+}
+
+export interface Formula {
+    factorA: FormulaFactor;
+    operator: FormulaOp;
+    factorB: FormulaFactor;
+}
 
 export interface Effect {
     type: EffectType;
     target: TargetType;
-    // Formulas are strings like "SELF.AD * 1.5 + 50"
-    valueFormula: string; 
-    manaCost: number;
+    formula: Formula; 
+    // Mana cost is now calculated dynamically
 }
 
 export interface Skill {
@@ -85,6 +96,6 @@ export const INITIAL_STATS: CharacterStats = {
 };
 
 // Initialize minimal viable stats to prevent division by zero errors
-INITIAL_STATS.base[StatType.HP] = 100;
-INITIAL_STATS.base[StatType.SPEED] = 10;
-INITIAL_STATS.base[StatType.CRIT_DMG] = 150; // 150% default
+INITIAL_STATS.base[StatType.HP] = 0;
+INITIAL_STATS.base[StatType.SPEED] = 0;
+INITIAL_STATS.base[StatType.CRIT_DMG] = 0; // 150% default
