@@ -424,17 +424,28 @@ const App: React.FC = () => {
         const entities = [active, opponent];
         let passiveTriggered = true;
         let loops = 0;
+        
+        // Track triggered skills this turn to prevent infinite loops and ensure "once per turn" logic
+        const triggeredSkillIds = new Set<string>();
+
         while (passiveTriggered && loops < 5) {
             passiveTriggered = false;
             entities.forEach(entity => {
                 const enemyOfEntity = entity.id === active.id ? opponent : active;
                 entity.config.skills.filter(s => s.isPassive).forEach(s => {
+                    // Unique key per entity+skill to handle mirror matches
+                    const uniqueTriggerKey = `${entity.id}-${s.id}`;
+                    if (triggeredSkillIds.has(uniqueTriggerKey)) return;
+
                     if (checkConditions(s, entity, enemyOfEntity, newState.turn)) {
                         const cost = calculateManaCost(s, entity.config.stats);
+                        
+                        // Check Mana before triggering
                         if (entity.currentMana >= cost) {
                              const success = processSkill(s, entity, enemyOfEntity, pushEvent);
                              if (success) {
                                  passiveTriggered = true;
+                                 triggeredSkillIds.add(uniqueTriggerKey);
                                  pushEvent({ type: 'TEXT', text: `[被动] ${entity.config.name} 触发 ${s.name}`});
                              }
                         }
