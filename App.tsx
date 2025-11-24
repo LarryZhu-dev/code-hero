@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
-import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode } from './types';
+import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent } from './types';
 import { processSkill, checkConditions, getTotalStat, calculateManaCost, processBasicAttack } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
@@ -43,6 +44,8 @@ const App: React.FC = () => {
         dummy.id = 'bot_enemy';
         dummy.name = "训练机器人";
         dummy.avatarColor = '#64748b';
+        // Give bot some basic AI stats
+        dummy.stats.base[StatType.SPEED] = 100;
         
         initBattle(myChar, dummy, 'LOCAL_BOT', true);
     };
@@ -57,35 +60,17 @@ const App: React.FC = () => {
         
         net.connect(roomId, (action, data) => {
             if (action === 'join') {
-                // Someone joined my room
                 setLobbyStatus(`玩家 ${data.id.slice(0,4)} 加入了! 正在同步数据...`);
                 setIsHost(true);
-                // As host, I send my config first
                 if (myChar) net.sendHandshake(myChar);
             } 
             else if (action === 'handshake') {
-                // Received opponent char
                 const enemyChar = data.char;
                 setLobbyStatus('数据同步完成，战斗开始!');
-                
-                // Determine Player 1 based on sorting IDs to be deterministic
-                // Or simpler: Host is P1.
-                // If I am host, I am P1. If I just joined (not host), I wait for Host to sync state?
-                // Let's simplify: The person who joined sends handshake first?
-                // Actually:
-                // 1. Joiner connects -> publishes 'join'.
-                // 2. Host sees 'join' -> publishes 'handshake' with HostChar.
-                // 3. Joiner sees 'handshake' -> sets Host as Enemy, publishes 'handshake' with JoinerChar.
-                // 4. Host sees 'handshake' -> sets Joiner as Enemy, STARTS BATTLE, sends initial state.
-                
                 if (isHost) {
-                    // I am host, I received joiner's char (step 4)
                     initBattle(myChar!, enemyChar, 'ONLINE_PVP', true);
-                    // State will be synced via useEffect
                 } else {
-                    // I am joiner, I received host's char (step 3)
                     if (myChar) net.sendHandshake(myChar);
-                    // Wait for sync_state to start
                 }
             }
             else if (action === 'sync_state') {
@@ -108,37 +93,32 @@ const App: React.FC = () => {
             buffs: [] 
         };
         const entity2: BattleEntity = { 
-            id: isP1Me ? 'enemy' : playerId,
+            id: isP1Me ? (mode === 'LOCAL_BOT' ? 'bot_enemy' : 'enemy') : playerId,
             config: p2Config, 
             currentHp: getTotalStat({ config: p2Config } as any, StatType.HP),
             currentMana: getTotalStat({ config: p2Config } as any, StatType.MANA),
             buffs: [] 
         };
         
-        // In Local mode, 'enemy' is the bot.
-        // In Online mode, IDs must match network IDs for ownership check.
-        // Let's fix IDs for Online:
         let realP1 = entity1;
         let realP2 = entity2;
         
         if (mode === 'ONLINE_PVP') {
-            // If I am host (P1), my ID is playerId. Enemy is the other guy.
-            // Actually, let's use the ID from config or generated one? 
-            // Simplest: Host is always P1 in state.
             realP1 = { ...entity1, id: isHost ? playerId : 'opponent' }; 
             realP2 = { ...entity2, id: isHost ? 'opponent' : playerId };
         }
 
         const initialState: BattleState = {
             turn: 1,
-            log: ['战斗开始！'],
+            log: ['战斗开始！', `${p1First ? p1Config.name : p2Config.name} 速度更快，获得先手！`],
             p1: p1First ? realP1 : realP2,
             p2: p1First ? realP2 : realP1,
             activePlayerId: p1First ? realP1.id : realP2.id,
             phase: 'ACTION_SELECTION',
             timeLeft: 60,
             mode: mode,
-            roomId: roomId
+            roomId: roomId,
+            events: []
         };
 
         setBattleState(initialState);
@@ -155,45 +135,96 @@ const App: React.FC = () => {
     const executeTurn = useCallback((skillId: string) => {
         if (!battleState) return;
         
-        // Check if it's actually my turn (or I am the authority for the bot)
         const isMyTurn = battleState.activePlayerId === playerId;
-        const isBotTurn = battleState.mode === 'LOCAL_BOT' && battleState.activePlayerId === 'bot_enemy';
-        
-        // In Online mode, only the active player calculates and broadcasts.
         if (battleState.mode === 'ONLINE_PVP' && !isMyTurn) return;
 
         const newState = { ...battleState };
         const isP1Active = newState.activePlayerId === newState.p1.id;
         const active = isP1Active ? newState.p1 : newState.p2;
         const opponent = isP1Active ? newState.p2 : newState.p1;
+        
+        // Reset events queue for this turn
+        newState.events = [];
+        const pushEvent = (evt: BattleEvent) => newState.events.push(evt);
 
         // 1. MANA CHECK
         if (skillId !== 'basic_attack') {
             const skill = active.config.skills.find(s => s.id === skillId);
             if (skill) {
-                const cost = calculateManaCost(skill);
+                const cost = calculateManaCost(skill, active.config.stats);
                 if (active.currentMana < cost) {
-                    // If local player, alert. If bot, this shouldn't happen due to AI logic.
                     if (isMyTurn) alert("法力值不足！");
-                    return; // STOP execution
+                    return; 
                 }
             }
         }
 
-        // 2. Action Processing
+        newState.log.push(`\n--- 第 ${newState.turn} 回合 ---`);
+
+        // 2. MAIN ACTION PROCESSING
         if (skillId === 'basic_attack') {
-            processBasicAttack(active, opponent, (msg) => newState.log.push(msg));
+            processBasicAttack(active, opponent, pushEvent);
         } else {
             const skill = active.config.skills.find(s => s.id === skillId);
             if (skill) {
-                const success = processSkill(skill, active, opponent, (msg) => newState.log.push(msg));
-                if (!success) return; // Double safety
+                const success = processSkill(skill, active, opponent, pushEvent);
+                if (!success) return; 
             } else {
-                processBasicAttack(active, opponent, (msg) => newState.log.push(msg));
+                processBasicAttack(active, opponent, pushEvent);
             }
         }
 
-        // 3. Check Death
+        // 3. PASSIVE & REACTION PHASE
+        const entities = [active, opponent];
+        let passiveTriggered = true;
+        let loops = 0;
+
+        while (passiveTriggered && loops < 5) {
+            passiveTriggered = false;
+            entities.forEach(entity => {
+                const enemyOfEntity = entity.id === active.id ? opponent : active;
+                entity.config.skills.filter(s => s.isPassive).forEach(s => {
+                    if (checkConditions(s, entity, enemyOfEntity, newState.turn)) {
+                        const cost = calculateManaCost(s, entity.config.stats);
+                        if (entity.currentMana >= cost) {
+                             // Use a wrapper to capture events from passives
+                             const success = processSkill(s, entity, enemyOfEntity, pushEvent);
+                             if (success) {
+                                 passiveTriggered = true;
+                                 pushEvent({ type: 'TEXT', text: `[被动] ${entity.config.name} 触发 ${s.name}`});
+                             }
+                        }
+                    }
+                });
+            });
+            loops++;
+        }
+
+        // Set Phase to Executing so BattleScene plays animations
+        newState.phase = 'EXECUTING';
+        
+        // Convert events to log strings for history
+        newState.events.forEach(evt => {
+            if (evt.text) newState.log.push(evt.text);
+        });
+
+        setBattleState(newState);
+        if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
+        
+        setSelectedSkillIndex(0); 
+
+    }, [battleState, playerId]);
+
+    // Called by BattleScene when animations finish
+    const handleAnimationComplete = useCallback(() => {
+        if (!battleState) return;
+
+        const newState = { ...battleState };
+        const isP1Active = newState.activePlayerId === newState.p1.id;
+        const active = isP1Active ? newState.p1 : newState.p2;
+        const opponent = isP1Active ? newState.p2 : newState.p1;
+
+        // 4. CHECK DEATH
         if (opponent.currentHp <= 0) {
             newState.winnerId = active.id;
             newState.phase = 'FINISHED';
@@ -202,44 +233,34 @@ const App: React.FC = () => {
             if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
             return;
         }
+        if (active.currentHp <= 0) {
+            newState.winnerId = opponent.id;
+            newState.phase = 'FINISHED';
+            newState.log.push(`${opponent.config.name} 获胜！`);
+            setBattleState(newState);
+            if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
+            return;
+        }
 
-        // 4. End Turn & Swap
+        // 5. PREPARE NEXT TURN
         newState.turn += 1;
         newState.activePlayerId = opponent.id; 
         
-        // 5. Regen & Passives for NEW Active Player
+        // Mana Regen
         const nextActive = newState.activePlayerId === newState.p1.id ? newState.p1 : newState.p2;
-        const nextPassive = newState.activePlayerId === newState.p1.id ? newState.p2 : newState.p1;
-
         const manaRegen = getTotalStat(nextActive, StatType.MANA_REGEN);
-        nextActive.currentMana = Math.min(getTotalStat(nextActive, StatType.MANA), nextActive.currentMana + manaRegen);
-
-        nextActive.config.skills.filter(s => s.isPassive).forEach(s => {
-            if (checkConditions(s, nextActive, nextPassive, newState.turn)) {
-                newState.log.push(`被动触发: ${s.name}`);
-                processSkill(s, nextActive, nextPassive, (msg) => newState.log.push(msg));
-            }
-        });
-
-        // Check death after passives
-        if (nextPassive.currentHp <= 0) {
-             newState.winnerId = nextActive.id;
-             newState.phase = 'FINISHED';
-             newState.log.push(`${nextActive.config.name} 获胜！`);
-             setBattleState(newState);
-             if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
-             return;
+        if (manaRegen > 0) {
+            nextActive.currentMana = Math.min(getTotalStat(nextActive, StatType.MANA), nextActive.currentMana + (getTotalStat(nextActive, StatType.MANA) * manaRegen / 100));
         }
 
         newState.phase = 'ACTION_SELECTION';
         newState.timeLeft = 60;
+        newState.events = []; // Clear executed events
         
         setBattleState(newState);
         if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
         
-        setSelectedSkillIndex(0); 
-
-    }, [battleState, playerId]);
+    }, [battleState]);
 
     // -- Side Effects --
 
@@ -271,24 +292,25 @@ const App: React.FC = () => {
     // Timeout Action
     useEffect(() => {
         if (battleState && battleState.timeLeft === 0 && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId) {
-            // Authority executes timeout action
-            if (battleState.mode === 'LOCAL_BOT' || battleState.activePlayerId === playerId) {
-                executeTurn('basic_attack');
-            }
+            executeTurn('basic_attack');
         }
-    }, [battleState?.timeLeft, executeTurn, battleState?.phase, battleState?.mode, playerId, battleState]);
+    }, [battleState?.timeLeft, executeTurn, battleState?.phase, battleState?.winnerId]);
 
     // Bot Logic
     useEffect(() => {
-        if (battleState && battleState.mode === 'LOCAL_BOT' && battleState.phase === 'ACTION_SELECTION' && battleState.activePlayerId === 'bot_enemy' && !battleState.winnerId) {
+        if (!battleState) return;
+        
+        const { mode, phase, activePlayerId, winnerId } = battleState;
+
+        if (mode === 'LOCAL_BOT' && phase === 'ACTION_SELECTION' && activePlayerId === 'bot_enemy' && !winnerId) {
+            
             const enemy = battleState.p1.id === 'bot_enemy' ? battleState.p1 : battleState.p2;
             
+            // Bot needs delay to simulate thinking, BUT executes in ACTION_SELECTION
             const timer = setTimeout(() => {
                 const skills = enemy.config.skills.filter(s => !s.isPassive);
-                // Filter by affordability
-                const affordable = skills.filter(s => calculateManaCost(s) <= enemy.currentMana);
+                const affordable = skills.filter(s => calculateManaCost(s, enemy.config.stats) <= enemy.currentMana);
                 
-                // AI: 70% chance to use skill if available, 30% attack. If no mana, 100% attack.
                 const useSkill = affordable.length > 0 && Math.random() < 0.7;
 
                 if (useSkill) {
@@ -297,10 +319,10 @@ const App: React.FC = () => {
                 } else {
                     executeTurn('basic_attack');
                 }
-            }, 800); // Fast but noticeable delay
+            }, 800);
             return () => clearTimeout(timer);
         }
-    }, [battleState, executeTurn]);
+    }, [battleState?.turn, battleState?.phase, battleState?.activePlayerId, battleState?.mode, battleState?.winnerId, executeTurn]);
 
     // Keyboard Input
     useEffect(() => {
@@ -329,11 +351,11 @@ const App: React.FC = () => {
     }, [view, battleState, playerId, selectedSkillIndex, executeTurn]);
 
     // Helper for Description
-    const getSkillDescription = (skill: Skill) => {
+    const getSkillDescription = (skill: Skill, stats?: CharacterConfig['stats']) => {
         if (skill.id === 'basic_attack') {
             return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
         }
-        const cost = calculateManaCost(skill);
+        const cost = stats ? calculateManaCost(skill, stats) : 0;
         let desc = `【消耗 ${cost} MP】`;
         if (skill.effects.length === 0) return desc + " 该模块为空，无任何效果。";
         
@@ -351,8 +373,6 @@ const App: React.FC = () => {
         }).join(' | ');
         return desc + effectsDesc;
     };
-
-    // -- RENDER --
 
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
@@ -383,7 +403,7 @@ const App: React.FC = () => {
                             </button>
 
                             <button 
-                                onClick={() => setView('HERO_LIST')} // Reusing list to select char first
+                                onClick={() => setView('HERO_LIST')} 
                                 className="group relative w-64 h-40 bg-slate-800 rounded-2xl border border-slate-700 hover:border-red-500 transition-all overflow-hidden flex flex-col items-center justify-center gap-4 shadow-2xl hover:-translate-y-2"
                             >
                                 <div className="absolute inset-0 bg-red-900/20 scale-0 group-hover:scale-100 transition-transform rounded-full blur-3xl"></div>
@@ -477,7 +497,6 @@ const App: React.FC = () => {
                             ROUND {battleState.turn}
                         </div>
                         
-                        {/* Top Right Surrender Button */}
                         <div className="absolute top-4 right-4 z-20">
                             <button 
                                 onClick={handleSurrender}
@@ -487,11 +506,13 @@ const App: React.FC = () => {
                             </button>
                         </div>
 
-                        <BattleScene gameState={battleState} />
+                        <BattleScene 
+                            gameState={battleState} 
+                            onAnimationsComplete={handleAnimationComplete}
+                        />
                         
                         {/* HUD */}
                         <div className="w-[800px] mt-6 flex justify-between items-center bg-slate-950/50 p-4 rounded-xl border border-slate-800 backdrop-blur-sm relative">
-                            {/* Active Indicator */}
                             <div className={`absolute top-0 bottom-0 w-1 bg-yellow-500 shadow-[0_0_10px_yellow] transition-all duration-500 ${battleState.activePlayerId === battleState.p1.id ? 'left-0 rounded-l' : 'right-0 rounded-r'}`}></div>
 
                             {/* P1 Status */}
@@ -526,11 +547,10 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Controls - Separated UI */}
+                        {/* Controls */}
                         {battleState.activePlayerId === playerId && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId && (
                             <div className="mt-8 w-full max-w-4xl flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-8 duration-500">
                                 
-                                {/* Skill Bar (Icons) */}
                                 <div className="flex justify-center items-center gap-4">
                                     {(() => {
                                         const activeEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
@@ -542,7 +562,7 @@ const App: React.FC = () => {
                                         
                                         return allSkills.map((skill, idx) => {
                                             const isSelected = idx === (selectedSkillIndex % allSkills.length);
-                                            const cost = skill.id === 'basic_attack' ? 0 : calculateManaCost(skill);
+                                            const cost = skill.id === 'basic_attack' ? 0 : calculateManaCost(skill, activeEntity.config.stats);
                                             const canAfford = activeEntity.currentMana >= cost;
                                             const isAttack = skill.id === 'basic_attack';
 
@@ -555,22 +575,18 @@ const App: React.FC = () => {
                                                         ${isSelected ? (canAfford ? 'bg-slate-800 border-blue-400' : 'bg-red-950 border-red-500') : 'bg-slate-900 border-slate-700'}
                                                     `}
                                                 >
-                                                    {/* Cost Bubble */}
                                                     <div className={`absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full border ${canAfford ? 'bg-blue-900 border-blue-500 text-blue-200' : 'bg-red-900 border-red-500 text-white'}`}>
                                                         {cost} MP
                                                     </div>
 
-                                                    {/* Icon */}
                                                     <div className={`flex-1 flex items-center justify-center ${canAfford ? (isAttack ? 'text-yellow-400' : 'text-purple-400') : 'text-red-500'}`}>
                                                         {isAttack ? <Swords size={32} /> : <Zap size={32} />}
                                                     </div>
 
-                                                    {/* Name */}
                                                     <div className="w-full text-center text-[10px] font-bold truncate text-slate-300">
                                                         {skill.name}
                                                     </div>
 
-                                                    {/* Selection Indicator */}
                                                     {isSelected && (
                                                         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-blue-400"></div>
                                                     )}
@@ -580,9 +596,7 @@ const App: React.FC = () => {
                                     })()}
                                 </div>
 
-                                {/* Description Panel */}
                                 <div className="bg-slate-900/90 border border-slate-700 rounded-xl p-6 flex flex-col items-center text-center shadow-2xl max-w-2xl mx-auto w-full min-h-[120px] relative">
-                                    {/* Keyboard Hints */}
                                     <div className="absolute top-4 left-4 flex gap-1">
                                         <div className="w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400"><ArrowLeft size={12}/></div>
                                         <div className="w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400"><ArrowRight size={12}/></div>
@@ -594,7 +608,6 @@ const App: React.FC = () => {
                                         <CornerDownLeft size={14} className="text-slate-500"/>
                                     </div>
 
-                                    {/* Content */}
                                     <div className="mt-2">
                                         {(() => {
                                              const activeEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
@@ -606,7 +619,7 @@ const App: React.FC = () => {
                                                  <>
                                                     <h4 className="text-xl font-bold text-white mb-2">{selectedSkill.name}</h4>
                                                     <p className="text-slate-400 font-mono text-sm leading-relaxed max-w-lg">
-                                                        {getSkillDescription(selectedSkill)}
+                                                        {getSkillDescription(selectedSkill, activeEntity.config.stats)}
                                                     </p>
                                                  </>
                                              )
@@ -616,11 +629,10 @@ const App: React.FC = () => {
                             </div>
                         )}
                         
-                        {/* Waiting Indicator */}
-                        {battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId && !battleState.winnerId && (
+                        {(battleState.phase === 'EXECUTING' || (battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId)) && !battleState.winnerId && (
                              <div className="mt-8 text-slate-500 font-mono animate-pulse flex items-center gap-2">
                                 <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
-                                等待对手行动...
+                                {battleState.phase === 'EXECUTING' ? '执行中...' : '等待对手行动...'}
                              </div>
                         )}
 

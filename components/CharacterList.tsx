@@ -9,6 +9,14 @@ interface Props {
     onBack: () => void;
 }
 
+// Helper for generating IDs
+const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15);
+};
+
 const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack }) => {
     const [heroes, setHeroes] = useState<CharacterConfig[]>([]);
 
@@ -26,7 +34,7 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack }) => {
 
     const handleCreate = () => {
         const newChar: CharacterConfig = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             name: `英雄 #${Math.floor(Math.random() * 1000)}`,
             avatarColor: '#' + Math.floor(Math.random()*16777215).toString(16),
             stats: JSON.parse(JSON.stringify(INITIAL_STATS)),
@@ -43,14 +51,19 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack }) => {
             if (file) {
                 const text = await file.text();
                 try {
-                    const json = atob(text);
+                    // Fix: Decode Base64 -> Binary String -> Uint8Array -> UTF-8 String
+                    const binString = atob(text);
+                    const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0)!);
+                    const json = new TextDecoder().decode(bytes);
+                    
                     const char = JSON.parse(json);
                     // Assign new ID to avoid collision
-                    char.id = crypto.randomUUID();
+                    char.id = generateId();
                     StorageService.save(char);
                     setHeroes(StorageService.getAll());
                 } catch (err) {
-                    alert('无效的配置文件');
+                    console.error(err);
+                    alert('无效的配置文件或编码错误');
                 }
             }
         };

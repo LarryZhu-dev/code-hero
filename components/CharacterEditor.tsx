@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, Crosshair, ArrowRight } from 'lucide-react';
+import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats } from '../types';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight } from 'lucide-react';
 import { calculateManaCost } from '../utils/gameEngine';
 
 interface Props {
@@ -11,14 +11,13 @@ interface Props {
 const MAX_BASE_POINTS = 10000;
 const MAX_PERCENT_POINTS = 1000;
 
-const ALLOWED_PERCENT_STATS = [
-    StatType.CRIT_RATE,
-    StatType.ARMOR_PEN_PERC,
-    StatType.MAGIC_PEN_PERC,
-    StatType.LIFESTEAL,
-    StatType.OMNIVAMP,
-    StatType.MANA_REGEN
-];
+// Helper for generating IDs
+const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15);
+};
 
 // --- Enhanced Token Styles ---
 const baseSelectClass = "appearance-none outline-none font-mono text-xs px-3 py-1.5 rounded cursor-pointer transition-all border shadow-sm text-center font-bold";
@@ -33,7 +32,7 @@ const styles = {
 
 const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
     const [char, setChar] = useState<CharacterConfig>(existing || {
-        id: crypto.randomUUID(),
+        id: generateId(),
         name: '新角色',
         avatarColor: '#3b82f6',
         stats: JSON.parse(JSON.stringify(INITIAL_STATS)),
@@ -74,9 +73,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
         setChar({
             ...char,
             skills: [...char.skills, {
-                id: crypto.randomUUID(),
+                id: generateId(),
                 name: '新技能',
-                isPassive: false,
+                isPassive: false, // Default to Active
                 conditions: [],
                 effects: []
             }]
@@ -89,15 +88,37 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
         setChar({ ...char, skills: newSkills });
     };
 
+    const handleSave = () => {
+        // Clean up: Active skills shouldn't have conditions
+        const cleanedSkills = char.skills.map(s => {
+            if (!s.isPassive) {
+                return { ...s, conditions: [] };
+            }
+            return s;
+        });
+        onSave({ ...char, skills: cleanedSkills });
+    };
+
     const exportConfig = () => {
-        const json = JSON.stringify(char);
-        const b64 = btoa(json);
-        const blob = new Blob([b64], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${char.name.replace(/\s/g, '_')}.code`;
-        a.click();
+        try {
+            const json = JSON.stringify(char);
+            // Fix: Encode Unicode characters to UTF-8 bytes before Base64 encoding
+            // This prevents "InvalidCharacterError" for Chinese characters
+            const bytes = new TextEncoder().encode(json);
+            const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
+            const b64 = btoa(binString);
+            
+            const blob = new Blob([b64], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${char.name.replace(/\s/g, '_')}.code`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error("Export failed", e);
+            alert("导出失败：包含不支持的字符");
+        }
     };
 
     return (
@@ -127,7 +148,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
                     <button onClick={exportConfig} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm transition-all hover:shadow-lg">
                         <Download size={16} /> 导出配置
                     </button>
-                    <button onClick={() => onSave(char)} className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/40">
+                    <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/40">
                         <Save size={16} /> 保存角色
                     </button>
                 </div>
@@ -135,7 +156,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
 
             <div className="flex-1 flex overflow-hidden gap-6">
                 {/* Stats Panel */}
-                <div className="w-[380px] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl">
+                <div className="w-[400px] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl">
                     <div className="bg-slate-800/80 p-5 border-b border-slate-700 shadow-md z-10">
                         <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">
                             <Activity size={18}/> 属性配置
@@ -150,7 +171,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
                             </div>
                             <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-700 relative overflow-hidden">
                                 <div className="absolute top-0 right-0 p-1 opacity-10"><Zap size={40}/></div>
-                                <div className="text-xs text-slate-400 mb-1 font-bold uppercase tracking-wider">百分比加成</div>
+                                <div className="text-xs text-slate-400 mb-1 font-bold uppercase tracking-wider">百分比点数</div>
                                 <div className={`text-2xl font-mono font-bold ${usedPerc > MAX_PERCENT_POINTS ? 'text-red-500' : 'text-purple-400'}`}>
                                     {usedPerc}<span className="text-sm text-slate-600">/{MAX_PERCENT_POINTS}%</span>
                                 </div>
@@ -160,26 +181,41 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
                         {Object.values(StatType).map(stat => {
-                            const isPercentAllowed = ALLOWED_PERCENT_STATS.includes(stat);
+                            const isPercentOnly = ONLY_PERCENT_STATS.includes(stat);
+                            const isBaseOnly = ONLY_BASE_STATS.includes(stat);
+                            
                             return (
                                 <div key={stat} className="bg-slate-900/40 p-3 rounded-lg border border-slate-700/30 hover:border-slate-500/50 transition-all group">
                                     <div className="flex justify-between items-center mb-2">
-                                        <label className="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">{stat}</label>
+                                        <label className={`text-sm font-bold transition-colors ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
+                                            {stat} {stat === StatType.SPEED && '(决定先手)'}
+                                        </label>
                                     </div>
                                     <div className="flex gap-3 items-center">
+                                        {/* Base Input */}
                                         <div className="flex-1 relative">
-                                            <input 
-                                                type="number" 
-                                                className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-right outline-none font-mono text-sm text-yellow-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all"
-                                                value={char.stats.base[stat]}
-                                                onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
-                                                onFocus={(e) => e.target.select()}
-                                                min={0}
-                                            />
-                                            <span className="absolute left-2 top-1.5 text-xs text-slate-600 select-none pointer-events-none">Base</span>
+                                            {!isPercentOnly ? (
+                                                <>
+                                                    <input 
+                                                        type="number" 
+                                                        className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-right outline-none font-mono text-sm text-yellow-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all"
+                                                        value={char.stats.base[stat]}
+                                                        onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
+                                                        onFocus={(e) => e.target.select()}
+                                                        min={0}
+                                                    />
+                                                    <span className="absolute left-2 top-1.5 text-xs text-slate-600 select-none pointer-events-none">Base</span>
+                                                </>
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center opacity-30 bg-slate-950/50 rounded border border-transparent">
+                                                     <span className="text-[10px] text-slate-500">固定值不可用</span>
+                                                </div>
+                                            )}
                                         </div>
+                                        
+                                        {/* Percent Input */}
                                         <div className="flex-1 relative">
-                                            {isPercentAllowed ? (
+                                            {!isBaseOnly ? (
                                                 <>
                                                     <input 
                                                         type="number" 
@@ -192,8 +228,8 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
                                                     <span className="absolute left-2 top-1.5 text-xs text-slate-600 select-none pointer-events-none">%</span>
                                                 </>
                                             ) : (
-                                                <div className="h-full flex items-center justify-center opacity-20">
-                                                    <div className="h-[1px] w-full bg-slate-500"></div>
+                                                <div className="h-full flex items-center justify-center opacity-30 bg-slate-950/50 rounded border border-transparent">
+                                                     <span className="text-[10px] text-slate-500">百分比不可用</span>
                                                 </div>
                                             )}
                                         </div>
@@ -230,7 +266,8 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
                         {char.skills.map((skill, idx) => (
                             <SkillBlock 
                                 key={skill.id} 
-                                skill={skill} 
+                                skill={skill}
+                                stats={char.stats}
                                 onChange={(s) => updateSkill(idx, s)} 
                                 onDelete={() => {
                                     const ns = [...char.skills];
@@ -239,15 +276,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
                                 }}
                             />
                         ))}
-                        {char.skills.length === 0 && (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-600">
-                                <div className="p-6 rounded-full bg-slate-800/50 mb-4 animate-pulse">
-                                    <Cpu size={64} className="opacity-50" />
-                                </div>
-                                <p className="text-xl font-bold mb-2">逻辑核心为空</p>
-                                <p className="text-sm opacity-60">点击右上角添加技能模块</p>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
@@ -255,12 +283,13 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
     );
 };
 
-const SkillBlock: React.FC<{ skill: Skill, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, onChange, onDelete }) => {
+const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, onChange, onDelete }) => {
     const [manaCost, setManaCost] = useState(0);
 
+    // Recalculate mana cost when skill OR stats change.
     useEffect(() => {
-        setManaCost(calculateManaCost(skill));
-    }, [skill]);
+        setManaCost(calculateManaCost(skill, stats));
+    }, [skill, stats]);
 
     const addCondition = () => {
         if (skill.conditions.length >= 3) return;
@@ -309,7 +338,7 @@ const SkillBlock: React.FC<{ skill: Skill, onChange: (s: Skill) => void, onDelet
                 <div className="flex items-center gap-6">
                     <div className="flex flex-col items-end">
                         <span className="text-[10px] text-slate-400 uppercase tracking-wider">Mana Cost</span>
-                        <span className="text-blue-400 font-mono font-bold text-lg">{manaCost}</span>
+                        <span className={`font-mono font-bold text-lg ${manaCost > 1000 ? 'text-red-500 animate-pulse' : manaCost > 100 ? 'text-red-400' : 'text-blue-400'}`}>{manaCost}</span>
                     </div>
                     <div className="h-8 w-[1px] bg-slate-700"></div>
                     <label className="flex items-center gap-2 cursor-pointer select-none group/toggle">
@@ -333,93 +362,100 @@ const SkillBlock: React.FC<{ skill: Skill, onChange: (s: Skill) => void, onDelet
             </div>
             
             <div className="p-5 space-y-6 bg-slate-900/50">
-                {/* Conditions */}
-                <div className="relative">
-                    <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-800"></div>
-                    <div className="flex justify-between items-center mb-3 pl-6">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-yellow-500"></div> 触发条件 (IF)
-                        </span>
-                        {skill.conditions.length < 3 && (
-                            <button onClick={addCondition} className="text-xs text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-950/30 transition-colors">
-                                <Plus size={12}/> 添加判定
-                            </button>
-                        )}
-                    </div>
-                    
-                    <div className="space-y-2 pl-6">
-                        {skill.conditions.length === 0 && (
-                            <div className="text-xs text-slate-600 py-2 px-3 border border-dashed border-slate-800 rounded-lg flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-                                无条件 (总是执行 / 等待玩家释放)
-                            </div>
-                        )}
-                        {skill.conditions.map((cond, i) => (
-                            <div key={i} className="flex flex-wrap gap-2 items-center bg-slate-950/80 p-2 rounded-lg border border-slate-800 shadow-sm group/line hover:border-slate-700 transition-colors">
-                                <span className="text-yellow-600 font-mono text-xs font-bold px-1">IF</span>
-                                <select 
-                                    className={styles.target}
-                                    value={cond.sourceTarget}
-                                    onChange={(e) => {
-                                        const nc = [...skill.conditions];
-                                        nc[i].sourceTarget = e.target.value as TargetType;
-                                        onChange({...skill, conditions: nc});
-                                    }}
-                                >
-                                    <option value="SELF">自己</option>
-                                    <option value="ENEMY">敌人</option>
-                                </select>
-                                <span className="text-slate-600 font-mono">.</span>
-                                <select 
-                                    className={styles.variable}
-                                    value={cond.variable}
-                                    onChange={(e) => {
-                                        const nc = [...skill.conditions];
-                                        nc[i].variable = e.target.value as VariableSource;
-                                        onChange({...skill, conditions: nc});
-                                    }}
-                                >
-                                    <option value="HP">当前生命</option>
-                                    <option value="HP%">生命百分比</option>
-                                    <option value="MANA">当前法力</option>
-                                    <option value="MANA%">法力百分比</option>
-                                    <option value="TURN">当前回合</option>
-                                </select>
-                                <select 
-                                    className={styles.operator}
-                                    value={cond.operator}
-                                    onChange={(e) => {
-                                        const nc = [...skill.conditions];
-                                        nc[i].operator = e.target.value as Operator;
-                                        onChange({...skill, conditions: nc});
-                                    }}
-                                >
-                                    {['>', '<', '==', '>=', '<=', '!='].map(op => <option key={op} value={op}>{op}</option>)}
-                                </select>
-                                <input 
-                                    type="number" 
-                                    className={styles.input}
-                                    value={cond.value}
-                                    onChange={(e) => {
-                                        const nc = [...skill.conditions];
-                                        nc[i].value = parseFloat(e.target.value);
-                                        onChange({...skill, conditions: nc});
-                                    }}
-                                />
-                                <button 
-                                    className="ml-auto text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 opacity-0 group-hover/line:opacity-100 transition-all"
-                                    onClick={() => {
-                                        const nc = [...skill.conditions];
-                                        nc.splice(i, 1);
-                                        onChange({...skill, conditions: nc});
-                                    }}
-                                >
-                                    <Trash2 size={14}/>
+                {/* Conditions (Only for Passive) */}
+                {skill.isPassive ? (
+                    <div className="relative animate-in fade-in duration-300">
+                        <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-800"></div>
+                        <div className="flex justify-between items-center mb-3 pl-6">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-yellow-500"></div> 触发条件 (IF)
+                            </span>
+                            {skill.conditions.length < 3 && (
+                                <button onClick={addCondition} className="text-xs text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-950/30 transition-colors">
+                                    <Plus size={12}/> 添加判定
                                 </button>
-                            </div>
-                        ))}
+                            )}
+                        </div>
+                        
+                        <div className="space-y-2 pl-6">
+                            {skill.conditions.length === 0 && (
+                                <div className="text-xs text-slate-600 py-2 px-3 border border-dashed border-slate-800 rounded-lg flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+                                    无条件 (在每回合结束时尝试触发)
+                                </div>
+                            )}
+                            {skill.conditions.map((cond, i) => (
+                                <div key={i} className="flex flex-wrap gap-2 items-center bg-slate-950/80 p-2 rounded-lg border border-slate-800 shadow-sm group/line hover:border-slate-700 transition-colors">
+                                    <span className="text-yellow-600 font-mono text-xs font-bold px-1">IF</span>
+                                    <select 
+                                        className={styles.target}
+                                        value={cond.sourceTarget}
+                                        onChange={(e) => {
+                                            const nc = [...skill.conditions];
+                                            nc[i].sourceTarget = e.target.value as TargetType;
+                                            onChange({...skill, conditions: nc});
+                                        }}
+                                    >
+                                        <option value="SELF">自己</option>
+                                        <option value="ENEMY">敌人</option>
+                                    </select>
+                                    <span className="text-slate-600 font-mono">.</span>
+                                    <select 
+                                        className={styles.variable}
+                                        value={cond.variable}
+                                        onChange={(e) => {
+                                            const nc = [...skill.conditions];
+                                            nc[i].variable = e.target.value as VariableSource;
+                                            onChange({...skill, conditions: nc});
+                                        }}
+                                    >
+                                        <option value="HP">当前生命</option>
+                                        <option value="HP%">生命百分比</option>
+                                        <option value="MANA">当前法力</option>
+                                        <option value="MANA%">法力百分比</option>
+                                        <option value="TURN">当前回合</option>
+                                    </select>
+                                    <select 
+                                        className={styles.operator}
+                                        value={cond.operator}
+                                        onChange={(e) => {
+                                            const nc = [...skill.conditions];
+                                            nc[i].operator = e.target.value as Operator;
+                                            onChange({...skill, conditions: nc});
+                                        }}
+                                    >
+                                        {['>', '<', '==', '>=', '<=', '!='].map(op => <option key={op} value={op}>{op}</option>)}
+                                    </select>
+                                    <input 
+                                        type="number" 
+                                        className={styles.input}
+                                        value={cond.value}
+                                        onChange={(e) => {
+                                            const nc = [...skill.conditions];
+                                            nc[i].value = parseFloat(e.target.value);
+                                            onChange({...skill, conditions: nc});
+                                        }}
+                                    />
+                                    <button 
+                                        className="ml-auto text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 opacity-0 group-hover/line:opacity-100 transition-all"
+                                        onClick={() => {
+                                            const nc = [...skill.conditions];
+                                            nc.splice(i, 1);
+                                            onChange({...skill, conditions: nc});
+                                        }}
+                                    >
+                                        <Trash2 size={14}/>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="pl-6 py-2 border-l-2 border-slate-800 text-xs text-slate-500 italic flex items-center gap-2">
+                        <ArrowRight size={14}/>
+                        主动技能：由玩家手动选择释放，无需设置触发条件。
+                    </div>
+                )}
 
                 {/* Effects */}
                 <div className="relative">

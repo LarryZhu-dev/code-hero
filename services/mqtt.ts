@@ -5,6 +5,14 @@ const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 
 type MessageHandler = (topic: string, payload: any) => void;
 
+// Helper for generating IDs if crypto.randomUUID is not available
+const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
 export class NetworkService {
     client: mqtt.MqttClient | null = null;
     roomId: string = '';
@@ -12,7 +20,7 @@ export class NetworkService {
     onMessage: MessageHandler = () => {};
 
     constructor() {
-        this.playerId = crypto.randomUUID().slice(0, 8);
+        this.playerId = generateId().slice(0, 8);
     }
 
     connect(roomId: string, onMessage: MessageHandler) {

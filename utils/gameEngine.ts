@@ -1,8 +1,16 @@
-import { BattleEntity, Effect, Formula, Skill, StatType } from '../types';
+
+import { BattleEntity, Effect, Formula, Skill, StatType, CharacterStats, ONLY_PERCENT_STATS, BattleEvent } from '../types';
 
 export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
+    // For pure percent stats (like Crit Rate), return the raw value stored in 'percent'.
+    // e.g. if User put 50 for Crit Rate, return 50.
+    if (ONLY_PERCENT_STATS.includes(stat)) {
+        return entity.config.stats.percent[stat] || 0;
+    }
+
     const base = entity.config.stats.base[stat] || 0;
     const perc = entity.config.stats.percent[stat] || 0;
+    // Standard stat calculation: Base * (1 + Percent/100)
     return Math.max(0, base * (1 + perc / 100));
 };
 
@@ -24,92 +32,119 @@ export const evaluateFormula = (formula: Formula, self: BattleEntity, enemy: Bat
     }
 };
 
-export const calculateManaCost = (skill: Skill): number => {
-    let totalCost = 0;
+/**
+ * Simulation-based Mana Calculation.
+ */
+export const calculateManaCost = (skill: Skill, stats: CharacterStats): number => {
+    if (skill.effects.length === 0) return 0;
+
+    const dummyEntity: BattleEntity = {
+        id: 'sim',
+        config: { stats: stats } as any,
+        currentHp: 1, 
+        currentMana: 1,
+        buffs: []
+    };
+
+    let totalEstimatedValue = 0;
 
     skill.effects.forEach(effect => {
-        let effectCost = 0;
-        
-        // Weight Mapping
-        const getWeight = (stat: StatType) => {
-            switch (stat) {
-                case StatType.HP: 
-                case StatType.MANA: return 20; // High numbers
-                case StatType.AD:
-                case StatType.AP: 
-                case StatType.ARMOR:
-                case StatType.MR: return 10; // Medium numbers
-                default: return 2; // Percentages / Low numbers
-            }
-        };
+        let val = evaluateFormula(effect.formula, dummyEntity, dummyEntity);
+        val = Math.abs(val);
 
-        const wA = getWeight(effect.formula.factorA.stat);
-        const wB = getWeight(effect.formula.factorB.stat);
-
-        // Operator Multiplier
-        if (effect.formula.operator === '*' || effect.formula.operator === '/') {
-            effectCost = (wA * wB) * 2; 
-        } else {
-            effectCost = (wA + wB) * 1.5;
+        if (effect.type === 'HEAL' || effect.type === 'GAIN_MANA') {
+            val *= 1.5; 
         }
-
-        // Effect Type Multiplier
-        if (effect.type === 'HEAL') effectCost *= 1.5;
-        if (effect.type === 'DAMAGE_MAGIC') effectCost *= 1.2;
-
-        totalCost += effectCost;
+        
+        totalEstimatedValue += val;
     });
 
-    skill.conditions.forEach(cond => {
-        totalCost += Math.ceil(cond.value / 100); 
-    });
+    let cost = 10 + (totalEstimatedValue / 20);
 
-    return Math.max(5, Math.floor(totalCost));
+    if (skill.isPassive) {
+        cost *= 1.3;
+    }
+
+    return Math.floor(Math.max(1, cost));
 };
 
-export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, logPush: (msg: string) => void): void => {
+export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, pushEvent: (evt: BattleEvent) => void): void => {
+    // Animation: Move to target
+    pushEvent({
+        type: 'ATTACK_MOVE',
+        sourceId: caster.id,
+        targetId: target.id,
+        skillName: '普通攻击'
+    });
+
     const damageRaw = getTotalStat(caster, StatType.AD);
     
     const armor = getTotalStat(target, StatType.ARMOR);
     const penFlat = getTotalStat(caster, StatType.ARMOR_PEN_FLAT);
     const penPerc = getTotalStat(caster, StatType.ARMOR_PEN_PERC);
     
-    const effectiveArmor = (armor * (1 - penPerc / 100)) - penFlat;
+    const effectiveArmor = Math.max(0, (armor * (1 - penPerc / 100)) - penFlat);
     const mitigation = effectiveArmor > 0 ? (100 / (100 + effectiveArmor)) : 1; 
     
-    // Crit logic
     const critRate = getTotalStat(caster, StatType.CRIT_RATE);
     const isCrit = Math.random() * 100 < critRate;
-    const critMult = isCrit ? (getTotalStat(caster, StatType.CRIT_DMG) / 100) : 1;
+    const baseCritDmg = 150; 
+    const extraCritDmg = getTotalStat(caster, StatType.CRIT_DMG); 
+    const critMult = isCrit ? ((baseCritDmg + extraCritDmg) / 100) : 1;
 
-    let damage = damageRaw * mitigation * critMult;
+    let damage = Math.max(1, damageRaw * mitigation * critMult);
+    damage = Math.floor(damage);
     
     // Lifesteal
     const lifesteal = getTotalStat(caster, StatType.LIFESTEAL) + getTotalStat(caster, StatType.OMNIVAMP);
     if (lifesteal > 0) {
-        caster.currentHp += damage * (lifesteal / 100);
+        const healAmt = Math.floor(damage * (lifesteal / 100));
+        caster.currentHp += healAmt;
+        if (healAmt > 0) {
+            pushEvent({ type: 'HEAL', targetId: caster.id, value: healAmt, color: '#4ade80' });
+        }
     }
 
     target.currentHp -= damage;
-    logPush(`${caster.config.name} 对 ${target.config.name} 造成了 ${Math.floor(damage)} 点物理伤害 (普通攻击)${isCrit ? ' (暴击!)' : ''}`);
     
+    pushEvent({
+        type: 'DAMAGE',
+        targetId: target.id,
+        value: damage,
+        text: isCrit ? '暴击!' : '',
+        color: isCrit ? '#fca5a5' : '#ef4444'
+    });
+    pushEvent({
+        type: 'TEXT',
+        text: `${caster.config.name} 对 ${target.config.name} 造成 ${damage} 点物理伤害`
+    });
+    
+    // Cap HP
     const maxHp = getTotalStat(caster, StatType.HP);
     caster.currentHp = Math.min(caster.currentHp, maxHp);
-    const maxEnemyHp = getTotalStat(target, StatType.HP);
-    target.currentHp = Math.min(target.currentHp, maxEnemyHp);
 };
 
-// Returns TRUE if skill was successfully cast
-export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleEntity, logPush: (msg: string) => void): boolean => {
-    const manaCost = calculateManaCost(skill);
+// Returns TRUE if skill was cast (mana consumed)
+export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleEntity, pushEvent: (evt: BattleEvent) => void): boolean => {
+    const manaCost = calculateManaCost(skill, caster.config.stats);
     
     if (caster.currentMana < manaCost) {
-        logPush(`${caster.config.name} 尝试使用 ${skill.name} 但法力不足!`);
+        if (!skill.isPassive) {
+            pushEvent({ type: 'TEXT', text: `${caster.config.name} 法力不足!` });
+        }
         return false;
     }
 
-    logPush(`${caster.config.name} 使用了 ${skill.name}!`);
     caster.currentMana = Math.max(0, caster.currentMana - manaCost);
+    if (!skill.isPassive) {
+        pushEvent({ 
+            type: 'SKILL_EFFECT', 
+            sourceId: caster.id, 
+            skillName: skill.name,
+            text: `${caster.config.name} 释放了 ${skill.name}`
+        });
+        pushEvent({ type: 'MANA', targetId: caster.id, value: -manaCost });
+    }
 
     skill.effects.forEach(effect => {
         const effectTarget = effect.target === 'SELF' ? caster : target;
@@ -121,58 +156,86 @@ export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleE
             const armor = getTotalStat(effectTarget, StatType.ARMOR);
             const penFlat = getTotalStat(caster, StatType.ARMOR_PEN_FLAT);
             const penPerc = getTotalStat(caster, StatType.ARMOR_PEN_PERC);
-            
-            const effectiveArmor = (armor * (1 - penPerc / 100)) - penFlat;
+            const effectiveArmor = Math.max(0, (armor * (1 - penPerc / 100)) - penFlat);
             const mitigation = effectiveArmor > 0 ? (100 / (100 + effectiveArmor)) : 1; 
             
             const critRate = getTotalStat(caster, StatType.CRIT_RATE);
             const isCrit = Math.random() * 100 < critRate;
-            const critMult = isCrit ? (getTotalStat(caster, StatType.CRIT_DMG) / 100) : 1;
+            const baseCritDmg = 150; 
+            const extraCritDmg = getTotalStat(caster, StatType.CRIT_DMG);
+            const critMult = isCrit ? ((baseCritDmg + extraCritDmg) / 100) : 1;
 
-            let damage = finalValue * mitigation * critMult;
+            let damage = Math.floor(Math.max(1, finalValue * mitigation * critMult));
             
             const lifesteal = getTotalStat(caster, StatType.LIFESTEAL) + getTotalStat(caster, StatType.OMNIVAMP);
             if (lifesteal > 0) {
-                caster.currentHp += damage * (lifesteal / 100);
+                const heal = Math.floor(damage * (lifesteal / 100));
+                caster.currentHp += heal;
+                if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
             effectTarget.currentHp -= damage;
-            logPush(`对 ${effectTarget.config.name} 造成了 ${Math.floor(damage)} 点物理伤害 ${isCrit ? '(暴击!)' : ''}`);
+            pushEvent({
+                type: 'DAMAGE',
+                targetId: effectTarget.id,
+                value: damage,
+                text: isCrit ? '暴击!' : '',
+                color: isCrit ? '#fca5a5' : '#ef4444'
+            });
+
         } else if (effect.type === 'DAMAGE_MAGIC') {
-             const mr = getTotalStat(effectTarget, StatType.MR);
+            const mr = getTotalStat(effectTarget, StatType.MR);
             const penFlat = getTotalStat(caster, StatType.MAGIC_PEN_FLAT);
             const penPerc = getTotalStat(caster, StatType.MAGIC_PEN_PERC);
-            
-            const effectiveMr = (mr * (1 - penPerc / 100)) - penFlat;
+            const effectiveMr = Math.max(0, (mr * (1 - penPerc / 100)) - penFlat);
             const mitigation = effectiveMr > 0 ? (100 / (100 + effectiveMr)) : 1; 
             
-            let damage = finalValue * mitigation;
+            let damage = Math.floor(Math.max(1, finalValue * mitigation));
 
             const omnivamp = getTotalStat(caster, StatType.OMNIVAMP);
             if (omnivamp > 0) {
-                caster.currentHp += damage * (omnivamp / 100);
+                const heal = Math.floor(damage * (omnivamp / 100));
+                caster.currentHp += heal;
+                if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
             effectTarget.currentHp -= damage;
-            logPush(`对 ${effectTarget.config.name} 造成了 ${Math.floor(damage)} 点魔法伤害`);
+            pushEvent({
+                type: 'DAMAGE',
+                targetId: effectTarget.id,
+                value: damage,
+                color: '#c084fc' // purple
+            });
+
         } else if (effect.type === 'HEAL') {
-            effectTarget.currentHp += finalValue;
-            logPush(`${effectTarget.config.name} 回复了 ${Math.floor(finalValue)} 点生命`);
+            const val = Math.floor(finalValue);
+            effectTarget.currentHp += val;
+            pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
+
         } else if (effect.type === 'GAIN_MANA') {
-            effectTarget.currentMana += finalValue;
-            logPush(`${effectTarget.config.name} 回复了 ${Math.floor(finalValue)} 点法力`);
+            const val = Math.floor(finalValue);
+            effectTarget.currentMana += val;
+            pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
         }
     });
 
-    const maxHp = getTotalStat(caster, StatType.HP);
-    caster.currentHp = Math.min(caster.currentHp, maxHp);
-    const maxEnemyHp = getTotalStat(target, StatType.HP);
-    target.currentHp = Math.min(target.currentHp, maxEnemyHp);
+    // Cap Stats after effects
+    const maxHpC = getTotalStat(caster, StatType.HP);
+    caster.currentHp = Math.min(caster.currentHp, maxHpC);
+    
+    const maxHpT = getTotalStat(target, StatType.HP);
+    target.currentHp = Math.min(target.currentHp, maxHpT);
+
+    const maxMpC = getTotalStat(caster, StatType.MANA);
+    caster.currentMana = Math.min(caster.currentMana, maxMpC);
     
     return true;
 };
 
 export const checkConditions = (skill: Skill, self: BattleEntity, enemy: BattleEntity, turn: number): boolean => {
+    if (!skill.isPassive) return false;
+    if (skill.conditions.length === 0) return true; 
+
     return skill.conditions.every(cond => {
         const entity = cond.sourceTarget === 'SELF' ? self : enemy;
         let val = 0;

@@ -1,22 +1,48 @@
+
 export enum StatType {
     HP = '生命值',
     AD = '攻击力',
     AP = '法术强度',
     ARMOR = '护甲',
     MR = '魔抗',
+    SPEED = '移动速度',
     CRIT_RATE = '暴击率',
     CRIT_DMG = '暴击伤害',
     ARMOR_PEN_FLAT = '固定物穿',
     ARMOR_PEN_PERC = '百分比物穿',
     MAGIC_PEN_FLAT = '固定法穿',
     MAGIC_PEN_PERC = '百分比法穿',
-    SPEED = '移动速度',
     LIFESTEAL = '生命偷取',
     OMNIVAMP = '全能吸血',
     TENACITY = '韧性',
     MANA = '法力值',
     MANA_REGEN = '法力回复',
 }
+
+// Stats that CANNOT have percentage points allocated (Raw numbers only)
+export const ONLY_BASE_STATS = [
+    StatType.HP,
+    StatType.AD,
+    StatType.AP,
+    StatType.ARMOR,
+    StatType.MR,
+    StatType.SPEED,
+    StatType.MANA,
+    StatType.ARMOR_PEN_FLAT,
+    StatType.MAGIC_PEN_FLAT,
+    StatType.TENACITY
+];
+
+// Stats that CANNOT have base points allocated (Percentages only)
+export const ONLY_PERCENT_STATS = [
+    StatType.CRIT_DMG,
+    StatType.LIFESTEAL,
+    StatType.OMNIVAMP,
+    StatType.CRIT_RATE,
+    StatType.ARMOR_PEN_PERC,
+    StatType.MAGIC_PEN_PERC,
+    StatType.MANA_REGEN
+];
 
 export interface CharacterStats {
     base: Record<StatType, number>;
@@ -72,6 +98,19 @@ export interface CharacterConfig {
 
 export type BattleMode = 'LOCAL_BOT' | 'ONLINE_PVP';
 
+// Animation Events
+export type BattleEventType = 'ATTACK_MOVE' | 'SKILL_EFFECT' | 'DAMAGE' | 'HEAL' | 'MANA' | 'TEXT' | 'DEATH';
+
+export interface BattleEvent {
+    type: BattleEventType;
+    sourceId?: string;
+    targetId?: string;
+    value?: number;
+    text?: string;
+    color?: string; // Hex string for floating text color
+    skillName?: string;
+}
+
 export interface BattleState {
     turn: number;
     log: string[];
@@ -83,6 +122,7 @@ export interface BattleState {
     timeLeft: number;
     mode: BattleMode;
     roomId?: string;
+    events: BattleEvent[]; // Queue of events to animate
 }
 
 export interface BattleEntity {
@@ -97,8 +137,3 @@ export const INITIAL_STATS: CharacterStats = {
     base: Object.values(StatType).reduce((acc, key) => ({ ...acc, [key]: 0 }), {} as any),
     percent: Object.values(StatType).reduce((acc, key) => ({ ...acc, [key]: 0 }), {} as any),
 };
-
-// Initialize minimal viable stats
-INITIAL_STATS.base[StatType.HP] = 0;
-INITIAL_STATS.base[StatType.SPEED] = 0;
-INITIAL_STATS.base[StatType.CRIT_DMG] = 0;
