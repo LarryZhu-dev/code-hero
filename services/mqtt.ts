@@ -1,3 +1,4 @@
+
 import mqtt from 'mqtt';
 import { BattleState, CharacterConfig } from '../types';
 
@@ -82,8 +83,12 @@ export class NetworkService {
         this.publish('sync_state', { state });
     }
     
-    sendHandshake(char: CharacterConfig) {
-        this.publish('handshake', { char });
+    sendHandshake(char: CharacterConfig, isHost: boolean) {
+        this.publish('handshake', { char, isHost });
+    }
+
+    sendReady(ready: boolean) {
+        this.publish('ready', { ready });
     }
 }
 
