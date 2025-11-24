@@ -17,7 +17,20 @@ export enum StatType {
     TENACITY = '韧性',
     MANA = '法力值',
     MANA_REGEN = '法力回复',
+    // Dynamic Stats (Calculated in runtime, not set in config)
+    CURRENT_HP = '当前生命值',
+    CURRENT_HP_PERC = '当前生命百分比',
+    HP_LOST = '已损生命值',
+    HP_LOST_PERC = '已损生命百分比',
 }
+
+// Stats that are calculated dynamically and should not be edited in the character stats panel
+export const DYNAMIC_STATS = [
+    StatType.CURRENT_HP,
+    StatType.CURRENT_HP_PERC,
+    StatType.HP_LOST,
+    StatType.HP_LOST_PERC
+];
 
 // Stats that CANNOT have percentage points allocated (Raw numbers only)
 export const ONLY_BASE_STATS = [
@@ -30,7 +43,8 @@ export const ONLY_BASE_STATS = [
     StatType.MANA,
     StatType.ARMOR_PEN_FLAT,
     StatType.MAGIC_PEN_FLAT,
-    StatType.TENACITY
+    StatType.TENACITY,
+    ...DYNAMIC_STATS // Dynamic stats don't use base/percent config logic anyway
 ];
 
 // Stats that CANNOT have base points allocated (Percentages only)
@@ -41,7 +55,8 @@ export const ONLY_PERCENT_STATS = [
     StatType.CRIT_RATE,
     StatType.ARMOR_PEN_PERC,
     StatType.MAGIC_PEN_PERC,
-    StatType.MANA_REGEN
+    StatType.MANA_REGEN,
+    ...DYNAMIC_STATS
 ];
 
 export interface CharacterStats {
@@ -51,7 +66,7 @@ export interface CharacterStats {
 
 export type Operator = '>' | '<' | '==' | '>=' | '<=' | '!=';
 export type TargetType = 'SELF' | 'ENEMY';
-export type VariableSource = 'HP' | 'HP%' | 'MANA' | 'MANA%' | 'TURN' | 'LAST_DMG_TAKEN';
+export type VariableSource = 'HP' | 'HP%' | 'MANA' | 'MANA%' | 'TURN' | 'LAST_DMG_TAKEN' | 'HP_LOST' | 'HP_LOST%';
 
 export interface Condition {
     sourceTarget: TargetType;

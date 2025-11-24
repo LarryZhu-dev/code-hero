@@ -2,6 +2,23 @@
 import { BattleEntity, Effect, Formula, Skill, StatType, CharacterStats, ONLY_PERCENT_STATS, BattleEvent } from '../types';
 
 export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
+    // Dynamic Stats Calculation
+    if (stat === StatType.CURRENT_HP) {
+        return entity.currentHp;
+    }
+    if (stat === StatType.CURRENT_HP_PERC) {
+        const max = getTotalStat(entity, StatType.HP);
+        return max > 0 ? (entity.currentHp / max) * 100 : 0;
+    }
+    if (stat === StatType.HP_LOST) {
+        const max = getTotalStat(entity, StatType.HP);
+        return Math.max(0, max - entity.currentHp);
+    }
+    if (stat === StatType.HP_LOST_PERC) {
+        const max = getTotalStat(entity, StatType.HP);
+        return max > 0 ? (Math.max(0, max - entity.currentHp) / max) * 100 : 0;
+    }
+
     // For pure percent stats (like Crit Rate), return the raw value stored in 'percent'.
     // e.g. if User put 50 for Crit Rate, return 50.
     if (ONLY_PERCENT_STATS.includes(stat)) {
@@ -245,6 +262,8 @@ export const checkConditions = (skill: Skill, self: BattleEntity, enemy: BattleE
         switch (cond.variable) {
             case 'HP': val = entity.currentHp; break;
             case 'HP%': val = (entity.currentHp / (maxHp || 1)) * 100; break;
+            case 'HP_LOST': val = Math.max(0, maxHp - entity.currentHp); break;
+            case 'HP_LOST%': val = (Math.max(0, maxHp - entity.currentHp) / (maxHp || 1)) * 100; break;
             case 'MANA': val = entity.currentMana; break;
             case 'MANA%': val = (entity.currentMana / (maxMana || 1)) * 100; break;
             case 'TURN': val = turn; break;

@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats } from '../types';
+import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS } from '../types';
 import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight } from 'lucide-react';
 import { calculateManaCost } from '../utils/gameEngine';
 
@@ -180,7 +181,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-                        {Object.values(StatType).map(stat => {
+                        {Object.values(StatType)
+                            .filter(stat => !DYNAMIC_STATS.includes(stat)) // Exclude dynamic stats from editor
+                            .map(stat => {
                             const isPercentOnly = ONLY_PERCENT_STATS.includes(stat);
                             const isBaseOnly = ONLY_BASE_STATS.includes(stat);
                             
@@ -409,8 +412,10 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                             onChange({...skill, conditions: nc});
                                         }}
                                     >
-                                        <option value="HP">当前生命</option>
-                                        <option value="HP%">生命百分比</option>
+                                        <option value="HP">当前生命值</option>
+                                        <option value="HP%">当前生命百分比</option>
+                                        <option value="HP_LOST">已损生命值</option>
+                                        <option value="HP_LOST%">已损生命百分比</option>
                                         <option value="MANA">当前法力</option>
                                         <option value="MANA%">法力百分比</option>
                                         <option value="TURN">当前回合</option>
