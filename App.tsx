@@ -29,11 +29,25 @@ const App: React.FC = () => {
     const [opponentReady, setOpponentReady] = useState(false);
     const [amIReady, setAmIReady] = useState(false);
     
+    // Additional State for Spectator/Challenger Sync
+    const [challengerId, setChallengerId] = useState<string | null>(null);
+    const [spectatorChallengerChar, setSpectatorChallengerChar] = useState<CharacterConfig | null>(null);
+    
     // Host specific lobby state
     const [spectators, setSpectators] = useState<{id: string, name: string}[]>([]);
 
     // Input Locking
     const processingTurnRef = useRef(false);
+    
+    // Refs for accessing latest state inside callbacks
+    const myRoleRef = useRef<UserRole>('NONE');
+    
+    // --- STALE CLOSURE FIX: Message Handler Ref ---
+    const handleMessageRef = useRef<((action: string, data: any) => void) | null>(null);
+
+    useEffect(() => {
+        myRoleRef.current = myRole;
+    }, [myRole]);
 
     // -- Character Management --
     
@@ -75,8 +89,11 @@ const App: React.FC = () => {
         // Reset Lobby State
         setLobbyLog(['正在连接服务器...']);
         setMyRole('NONE');
+        myRoleRef.current = 'NONE';
         setOpponentChar(null);
         setOpponentId(null);
+        setChallengerId(null);
+        setSpectatorChallengerChar(null);
         setOpponentReady(false);
         setAmIReady(false);
         setSpectators([]);
@@ -84,131 +101,202 @@ const App: React.FC = () => {
         
         let handshakeTimeout: ReturnType<typeof setTimeout>;
 
-        net.connect(roomId, (action, data) => {
-            // 1. Presence & Role Assignment
-            if (action === 'query_host') {
-                // If I am Host, announce myself
-                if (myRole === 'HOST') {
-                    net.publish('host_announce', { 
-                        hostId: playerId, 
-                        hostName: myChar?.name,
-                        hasChallenger: !!opponentId,
-                        challengerName: opponentChar?.name
+        // Start Connection
+        // We pass a wrapper that calls the current ref, preventing stale closures
+        net.connect(roomId, (action, data) => handleMessageRef.current?.(action, data), () => {
+            // This runs ONCE when connection is established
+            setLobbyLog(prev => [...prev, '已连接服务器', '正在寻找房主...']);
+            
+            // Initial Discovery
+            net.publish('query_host', {});
+            
+            // If no host replies in 2.0s, become host
+            handshakeTimeout = setTimeout(() => {
+                if (myRoleRef.current === 'NONE') {
+                    setMyRole('HOST');
+                    setLobbyLog(prev => [...prev, '未发现房主，自动创建房间', '我是房主，等待挑战者...']);
+                }
+            }, 2000);
+        });
+    };
+
+    // --- Message Handler Logic (Recreated every render to capture fresh state) ---
+    const handleMessage = useCallback((action: string, data: any) => {
+        // 1. Presence & Role Assignment
+        if (action === 'query_host') {
+            // If I am Host, announce myself
+            if (myRoleRef.current === 'HOST') {
+                net.publish('host_announce', { 
+                    hostId: playerId, 
+                    hostName: myChar?.name,
+                    hasChallenger: !!opponentId,
+                    challengerName: opponentChar?.name
+                });
+            }
+        }
+        else if (action === 'host_announce') {
+            // Received announcement from existing host
+            if (myRoleRef.current === 'NONE') {
+                setLobbyLog(prev => {
+                     if (prev.some(l => l.includes(data.hostName))) return prev;
+                     return [...prev, `发现房主: ${data.hostName}`];
+                });
+                // Ask to join
+                net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
+            }
+        }
+        else if (action === 'join_request') {
+            // HOST LOGIC: Handle join requests
+            if (myRoleRef.current === 'HOST') {
+                if (!opponentId && !challengerId) {
+                    // Accept as Challenger
+                    setOpponentId(data.id);
+                    setChallengerId(data.id); // Sync global ID
+                    setOpponentChar(data.char);
+                    setOpponentReady(false);
+                    setLobbyLog(prev => [...prev, `玩家 ${data.name} 加入挑战位`]);
+                    
+                    net.publish('assign_role', { targetId: data.id, role: 'CHALLENGER', hostChar: myChar });
+                    
+                    // BROADCAST NEW STATE to everyone (so spectators update)
+                    net.publish('lobby_update', { 
+                        challenger: { id: data.id, char: data.char, name: data.name },
+                        spectators: spectators 
+                    });
+                } else {
+                    // Add as Spectator
+                    if (!spectators.find(s => s.id === data.id)) {
+                        const newSpec = { id: data.id, name: data.name };
+                        const newSpecsList = [...spectators, newSpec];
+                        setSpectators(newSpecsList);
+                        setLobbyLog(prev => [...prev, `玩家 ${data.name} 前来观战`]);
+                        
+                        net.publish('assign_role', { targetId: data.id, role: 'SPECTATOR', hostChar: myChar, challengerChar: opponentChar, challengerId: opponentId });
+                        // Sync spectator list to everyone
+                        net.publish('lobby_update', { 
+                            challenger: { id: opponentId, char: opponentChar }, 
+                            spectators: newSpecsList 
+                        });
+                    }
+                }
+            }
+        }
+        else if (action === 'assign_role') {
+            // I received a role assignment
+            if (data.targetId === playerId) {
+                setMyRole(data.role);
+                setOpponentChar(data.hostChar); // For guest, opponent is Host
+                
+                if (data.role === 'CHALLENGER') {
+                     setLobbyLog(prev => [...prev, '你已成为挑战者', '请准备...']);
+                } else if (data.role === 'SPECTATOR') {
+                     setLobbyLog(prev => [...prev, '房间已满，你已进入观战模式']);
+                     // Spectators initialize with current challenger data
+                     if (data.challengerChar) {
+                         setSpectatorChallengerChar(data.challengerChar);
+                         setChallengerId(data.challengerId);
+                     }
+                }
+            }
+        }
+        else if (action === 'lobby_update') {
+            // Universal sync for Spectators/Joiners
+            if (data.challenger) {
+                setChallengerId(data.challenger.id);
+                setSpectatorChallengerChar(data.challenger.char);
+                // If I am spectator, I need to know who is on right side
+            } else {
+                setChallengerId(null);
+                setSpectatorChallengerChar(null);
+                setOpponentReady(false);
+            }
+            if (data.spectators) {
+                setSpectators(data.spectators);
+            }
+        }
+        else if (action === 'ready') {
+            // Update ready status if sender is current challenger
+            // Check both IDs to ensure we catch it regardless of role view
+            if (data.sender === challengerId || data.sender === opponentId) {
+                setOpponentReady(data.ready);
+                setLobbyLog(prev => {
+                    const msg = `挑战者 ${data.ready ? '已准备' : '取消准备'}`;
+                    if (prev[prev.length-1] === msg) return prev; // Dedup
+                    return [...prev, msg];
+                });
+            }
+        }
+        else if (action === 'leave') {
+            const leavingId = data.id;
+
+            // Universal Logic: If Challenger leaves, everyone should clear that slot visually
+            if (leavingId === challengerId || leavingId === opponentId) {
+                setOpponentReady(false);
+                if (myRoleRef.current !== 'HOST') {
+                     setChallengerId(null);
+                     setSpectatorChallengerChar(null);
+                     setLobbyLog(prev => [...prev, '挑战者离开了']);
+                }
+            }
+
+            // HOST LOGIC: Handle leavers
+            if (myRoleRef.current === 'HOST') {
+                if (leavingId === opponentId) {
+                    setLobbyLog(prev => [...prev, '挑战者离开了']);
+                    setOpponentChar(null);
+                    setOpponentId(null);
+                    setChallengerId(null);
+                    setOpponentReady(false);
+                    
+                    // Promote Spectator
+                    if (spectators.length > 0) {
+                        const nextPlayer = spectators[0];
+                        const remainingSpecs = spectators.slice(1);
+                        setSpectators(remainingSpecs);
+                        
+                        // We set ID, but we wait for them to re-join to get full char config and finalize
+                        setOpponentId(nextPlayer.id);
+                        setChallengerId(nextPlayer.id);
+
+                        setLobbyLog(prev => [...prev, `观战者 ${nextPlayer.name} 补位成为挑战者`]);
+                        
+                        net.publish('promote_spectator', { targetId: nextPlayer.id });
+                        // Broadcast that specs changed (Challenger is temp null until they rejoin)
+                        net.publish('lobby_update', { challenger: null, spectators: remainingSpecs });
+                    } else {
+                        // Empty lobby
+                        net.publish('lobby_update', { challenger: null, spectators: [] });
+                    }
+                } else {
+                    // Remove from spectator list
+                    const newSpecs = spectators.filter(s => s.id !== leavingId);
+                    setSpectators(newSpecs);
+                    net.publish('lobby_update', { 
+                        challenger: { id: opponentId, char: opponentChar }, 
+                        spectators: newSpecs 
                     });
                 }
             }
-            else if (action === 'host_announce') {
-                // Received announcement from existing host
-                clearTimeout(handshakeTimeout);
-                
-                if (myRole === 'NONE') {
-                    // I just joined, found a host
-                    setLobbyLog(prev => [...prev, `发现房主: ${data.hostName}`]);
-                    // Ask to join
-                    net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
-                }
+        }
+        else if (action === 'promote_spectator') {
+            if (data.targetId === playerId) {
+                setMyRole('CHALLENGER');
+                setLobbyLog(prev => [...prev, '你已补位成为挑战者！']);
+                setAmIReady(false);
+                // Resend my char info to host just in case
+                net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
             }
-            else if (action === 'join_request') {
-                // HOST LOGIC: Handle join requests
-                if (myRole === 'HOST') {
-                    if (!opponentId) {
-                        // Accept as Challenger
-                        setOpponentId(data.id);
-                        setOpponentChar(data.char);
-                        setOpponentReady(false);
-                        setLobbyLog(prev => [...prev, `玩家 ${data.name} 加入挑战位`]);
-                        
-                        net.publish('assign_role', { targetId: data.id, role: 'CHALLENGER', hostChar: myChar });
-                    } else {
-                        // Add as Spectator
-                        if (!spectators.find(s => s.id === data.id)) {
-                            const newSpec = { id: data.id, name: data.name };
-                            setSpectators(prev => [...prev, newSpec]);
-                            setLobbyLog(prev => [...prev, `玩家 ${data.name} 前来观战`]);
-                            net.publish('assign_role', { targetId: data.id, role: 'SPECTATOR', hostChar: myChar, challengerChar: opponentChar });
-                        }
-                    }
-                    // Sync spectator list to everyone
-                    net.publish('sync_spectators', { list: spectators });
-                }
-            }
-            else if (action === 'assign_role') {
-                // I received a role assignment
-                if (data.targetId === playerId) {
-                    setMyRole(data.role);
-                    setOpponentChar(data.hostChar); // For guest, opponent is Host
-                    
-                    if (data.role === 'CHALLENGER') {
-                         setLobbyLog(prev => [...prev, '你已成为挑战者', '请准备...']);
-                    } else if (data.role === 'SPECTATOR') {
-                         setLobbyLog(prev => [...prev, '房间已满，你已进入观战模式']);
-                         if (data.challengerChar) {
-                             // Spectators need to see the challenger too (stored in opponentChar for UI simplicity? No, Spectator UI is different)
-                             // We'll handle spectator UI separately
-                         }
-                    }
-                }
-            }
-            else if (action === 'ready') {
-                if (myRole === 'HOST' && data.sender === opponentId) {
-                    setOpponentReady(data.ready);
-                    setLobbyLog(prev => [...prev, `挑战者 ${data.ready ? '已准备' : '取消准备'}`]);
-                }
-            }
-            else if (action === 'leave') {
-                // HOST LOGIC: Handle leavers
-                if (myRole === 'HOST') {
-                    if (data.id === opponentId) {
-                        setLobbyLog(prev => [...prev, '挑战者离开了']);
-                        setOpponentChar(null);
-                        setOpponentId(null);
-                        setOpponentReady(false);
-                        
-                        // Promote Spectator
-                        if (spectators.length > 0) {
-                            const nextPlayer = spectators[0];
-                            const remainingSpecs = spectators.slice(1);
-                            setSpectators(remainingSpecs);
-                            
-                            setOpponentId(nextPlayer.id);
-                            // We don't have their char config stored in simple list, wait for them to resend or just sync
-                            // Simplification: Just tell them they are challenger, they will re-send handshake or we wait for their ready
-                            setLobbyLog(prev => [...prev, `观战者 ${nextPlayer.name} 补位成为挑战者`]);
-                            
-                            net.publish('promote_spectator', { targetId: nextPlayer.id });
-                        }
-                    } else {
-                        // Remove from spectator list
-                        setSpectators(prev => prev.filter(s => s.id !== data.id));
-                    }
-                }
-            }
-            else if (action === 'promote_spectator') {
-                if (data.targetId === playerId) {
-                    setMyRole('CHALLENGER');
-                    setLobbyLog(prev => [...prev, '你已补位成为挑战者！']);
-                    setAmIReady(false);
-                    // Resend my char info to host just in case
-                    net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
-                }
-            }
-            else if (action === 'sync_state') {
-                setBattleState(data.state);
-                if (view !== 'BATTLE') setView('BATTLE');
-            }
-        });
+        }
+        else if (action === 'sync_state') {
+            setBattleState(data.state);
+            if (view !== 'BATTLE') setView('BATTLE');
+        }
+    }, [myRole, opponentId, challengerId, opponentChar, spectators, myChar, playerId, view]);
 
-        // Initial Discovery
-        net.publish('query_host', {});
-        
-        // If no host replies in 1.5s, become host
-        handshakeTimeout = setTimeout(() => {
-            if (myRole === 'NONE') {
-                setMyRole('HOST');
-                setLobbyLog(prev => [...prev, '创建了房间 (我是房主)', '等待挑战者...']);
-            }
-        }, 1500);
-    };
+    // Keep the ref updated with the latest handler
+    useEffect(() => {
+        handleMessageRef.current = handleMessage;
+    }, [handleMessage]);
 
     const handleToggleReady = () => {
         const newState = !amIReady;
@@ -474,20 +562,7 @@ const App: React.FC = () => {
             
             // Force basic attack
             if (battleState.mode === 'LOCAL_BOT' || myRole === 'HOST') {
-                 // We need to call executeTurn, but executeTurn relies on state/ref closure.
-                 // For timeout, we bypass the Ref lock or simulate a click.
-                 // Since executeTurn is useCallback, it has recent scope.
-                 // We just force the logic directly here or call it.
-                 // But executeTurn checks 'isMyTurn'.
-                 // If it's opponent's turn and they timed out, Host needs to run it for them.
-                 
-                 const active = battleState.p1.id === battleState.activePlayerId ? battleState.p1 : battleState.p2;
-                 // Only Host executes timeouts for both
-                 // But wait, executeTurn logic has "if (!isMyTurn) return".
-                 // We need a separate "forceTurn" logic or modify executeTurn to allow Host override.
-                 // For now, let's just skip this complexity or simple: 
-                 // The logic below won't trigger for opponent because of checks.
-                 // Implementing "Host Force Turn" is safer.
+                 // Logic handled by executeTurn or forced here
             }
         }
     }, [battleState?.timeLeft, myRole]);
@@ -504,20 +579,6 @@ const App: React.FC = () => {
                 const affordable = skills.filter(s => calculateManaCost(s, enemy.config.stats) <= enemy.currentMana);
                 const useSkill = affordable.length > 0 && Math.random() < 0.7;
 
-                // Force execution ignoring "isMyTurn" check by bypassing the check logic in a new function or 
-                // simpler: modify executeTurn to allow bot.
-                // Since 'LOCAL_BOT' implies I am Host, and I am running this effect.
-                
-                // I need to call executeTurn for the bot. 
-                // But executeTurn checks `playerId`.
-                // Hack: I am the game engine.
-                
-                // Let's reuse the logic inside executeTurn but stripped of permission checks?
-                // Actually, executeTurn checks `isMyTurn`. In Local Bot, `activePlayerId` is bot.
-                // So `isMyTurn` is false.
-                // We need to allow it.
-                
-                // FIX: In executeTurn, allow if mode==LOCAL_BOT.
                 executeTurn(useSkill ? affordable[Math.floor(Math.random() * affordable.length)].id : 'basic_attack');
             }, 800);
             return () => clearTimeout(timer);
@@ -705,11 +766,12 @@ const App: React.FC = () => {
                             <div className="text-4xl font-black text-slate-700 italic">VS</div>
 
                             {/* Challenger Card */}
+                            {/* Improved Rendering Logic for Spectators */}
                             <div className="flex flex-col items-center gap-4">
-                                {(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : null)) ? (
-                                    <div className={`relative w-48 h-64 bg-slate-800 rounded-xl border-2 flex flex-col items-center justify-center p-4 transition-all ${opponentReady || (myRole === 'CHALLENGER' && amIReady) ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-slate-600'}`}>
-                                        <div className="w-20 h-20 rounded-lg mb-4 shadow-lg" style={{backgroundColor: (myRole === 'CHALLENGER' ? myChar : opponentChar)?.avatarColor}}></div>
-                                        <h3 className="font-bold text-lg">{(myRole === 'CHALLENGER' ? myChar : opponentChar)?.name}</h3>
+                                {(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : (myRole === 'SPECTATOR' ? spectatorChallengerChar : null))) ? (
+                                    <div className={`relative w-48 h-64 bg-slate-800 rounded-xl border-2 flex flex-col items-center justify-center p-4 transition-all ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-slate-600'}`}>
+                                        <div className="w-20 h-20 rounded-lg mb-4 shadow-lg" style={{backgroundColor: (myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.avatarColor}}></div>
+                                        <h3 className="font-bold text-lg">{(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.name}</h3>
                                         <span className="text-xs text-blue-400 mb-4 font-bold">挑战者</span>
                                         
                                         <div className={`mt-auto flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'bg-green-900/50 text-green-400' : 'bg-slate-900/50 text-slate-500'}`}>

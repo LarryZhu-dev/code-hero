@@ -24,7 +24,7 @@ export class NetworkService {
         this.playerId = generateId().slice(0, 8);
     }
 
-    connect(roomId: string, onMessage: MessageHandler) {
+    connect(roomId: string, onMessage: MessageHandler, onConnect?: () => void) {
         this.roomId = roomId;
         this.onMessage = onMessage;
 
@@ -33,12 +33,24 @@ export class NetworkService {
             clientId: `cw_client_${this.playerId}_${Math.random().toString(16).slice(2, 5)}`,
             clean: true,
             keepalive: 30,
+            // Last Will and Testament: Automatically publish 'leave' if connection is lost
+            will: {
+                topic: `cw/room/${roomId}/leave`,
+                payload: JSON.stringify({ sender: this.playerId, id: this.playerId }),
+                qos: 0,
+                retain: false
+            }
         });
 
         this.client.on('connect', () => {
             console.log('Connected to MQTT Broker');
-            this.client?.subscribe(`cw/room/${roomId}/#`);
-            this.publish('join', { id: this.playerId });
+            this.client?.subscribe(`cw/room/${roomId}/#`, (err) => {
+                if (!err) {
+                    this.publish('join', { id: this.playerId });
+                    // Notify caller that we are ready to send messages
+                    if (onConnect) onConnect();
+                }
+            });
         });
 
         this.client.on('message', (topic, msg) => {
