@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent } from '../types';
@@ -6,6 +7,7 @@ import { getTotalStat } from '../utils/gameEngine';
 interface Props {
     gameState: BattleState;
     onAnimationsComplete?: () => void;
+    onEntityClick?: (id: string) => void;
 }
 
 // Extend window interface for TS
@@ -100,10 +102,25 @@ class PixelEntity {
     // Animation State
     animOffset: number = Math.random() * 100;
     
-    constructor(colorHex: string, x: number, y: number, maxHp: number, maxMana: number, isFacingLeft: boolean) {
+    constructor(
+        colorHex: string, 
+        x: number, 
+        y: number, 
+        maxHp: number, 
+        maxMana: number, 
+        isFacingLeft: boolean,
+        id: string,
+        onClick?: (id: string) => void
+    ) {
         this.container = new PIXI.Container();
         this.container.x = x;
         this.container.y = y;
+
+        if (onClick) {
+            this.container.eventMode = 'static';
+            this.container.cursor = 'pointer';
+            this.container.on('pointerdown', () => onClick(id));
+        }
 
         this.maxHp = maxHp;
         this.maxMana = maxMana;
@@ -295,7 +312,7 @@ const createParticles = (app: PIXI.Application, x: number, y: number, color: num
     }
 };
 
-const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete }) => {
+const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntityClick }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<PIXI.Application | null>(null);
     const visualsRef = useRef<{ p1: PixelEntity; p2: PixelEntity } | null>(null);
@@ -352,11 +369,11 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete }) => {
                 // -- Characters --
                 const maxHp1 = getTotalStat(gameState.p1, StatType.HP);
                 const maxMana1 = getTotalStat(gameState.p1, StatType.MANA);
-                const v1 = new PixelEntity(gameState.p1.config.avatarColor, 200, 300, maxHp1, maxMana1, false);
+                const v1 = new PixelEntity(gameState.p1.config.avatarColor, 200, 300, maxHp1, maxMana1, false, gameState.p1.id, onEntityClick);
                 
                 const maxHp2 = getTotalStat(gameState.p2, StatType.HP);
                 const maxMana2 = getTotalStat(gameState.p2, StatType.MANA);
-                const v2 = new PixelEntity(gameState.p2.config.avatarColor, 600, 300, maxHp2, maxMana2, true);
+                const v2 = new PixelEntity(gameState.p2.config.avatarColor, 600, 300, maxHp2, maxMana2, true, gameState.p2.id, onEntityClick);
 
                 // Sync initial state
                 v1.currentHp = gameState.p1.currentHp;

@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight } from 'lucide-react';
-import { calculateManaCost } from '../utils/gameEngine';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight, ArrowLeft } from 'lucide-react';
+import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
 
 interface Props {
     onSave: (char: CharacterConfig) => void;
     existing?: CharacterConfig;
+    onBack: () => void;
 }
 
 const MAX_BASE_POINTS = 10000;
@@ -31,7 +32,7 @@ const styles = {
     input: "bg-slate-950/50 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-center text-yellow-200 w-20 focus:border-yellow-500 outline-none transition-colors",
 };
 
-const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
+const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     const [char, setChar] = useState<CharacterConfig>(existing || {
         id: generateId(),
         name: '新角色',
@@ -126,6 +127,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
         <div className="h-full flex flex-col overflow-hidden bg-slate-900 text-white p-4">
             <header className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 bg-slate-900">
                 <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-700">
+                        <ArrowLeft size={20} />
+                    </button>
                     <div className="w-10 h-10 rounded-lg shadow-lg" style={{backgroundColor: char.avatarColor}}></div>
                     <input 
                         value={char.name} 
@@ -288,10 +292,12 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing }) => {
 
 const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, onChange, onDelete }) => {
     const [manaCost, setManaCost] = useState(0);
+    const [isDynamic, setIsDynamic] = useState(false);
 
     // Recalculate mana cost when skill OR stats change.
     useEffect(() => {
         setManaCost(calculateManaCost(skill, stats));
+        setIsDynamic(hasDynamicStats(skill));
     }, [skill, stats]);
 
     const addCondition = () => {
@@ -341,7 +347,12 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                 <div className="flex items-center gap-6">
                     <div className="flex flex-col items-end">
                         <span className="text-[10px] text-slate-400 uppercase tracking-wider">Mana Cost</span>
-                        <span className={`font-mono font-bold text-lg ${manaCost > 1000 ? 'text-red-500 animate-pulse' : manaCost > 100 ? 'text-red-400' : 'text-blue-400'}`}>{manaCost}</span>
+                        <div className="flex items-center gap-1">
+                            <span className={`font-mono font-bold text-lg ${manaCost > 1000 ? 'text-red-500 animate-pulse' : manaCost > 100 ? 'text-red-400' : 'text-blue-400'}`}>
+                                {manaCost}
+                            </span>
+                            {isDynamic && <span className="text-xs text-yellow-400 font-bold">+ 战时</span>}
+                        </div>
                     </div>
                     <div className="h-8 w-[1px] bg-slate-700"></div>
                     <label className="flex items-center gap-2 cursor-pointer select-none group/toggle">

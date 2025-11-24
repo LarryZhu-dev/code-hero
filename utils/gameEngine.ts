@@ -50,16 +50,36 @@ export const evaluateFormula = (formula: Formula, self: BattleEntity, enemy: Bat
 };
 
 /**
- * Simulation-based Mana Calculation.
+ * Checks if a skill uses dynamic runtime stats (Current HP, Mana, Turn, etc.)
  */
-export const calculateManaCost = (skill: Skill, stats: CharacterStats): number => {
+export const hasDynamicStats = (skill: Skill): boolean => {
+    const dynamicVars: StatType[] = [StatType.CURRENT_HP, StatType.CURRENT_HP_PERC, StatType.HP_LOST, StatType.HP_LOST_PERC, StatType.MANA];
+    
+    // Check conditions
+    const condHas = skill.conditions.some(c => ['HP', 'HP%', 'HP_LOST', 'HP_LOST%', 'MANA', 'MANA%'].includes(c.variable));
+    
+    // Check formulas
+    const effectHas = skill.effects.some(e => 
+         dynamicVars.includes(e.formula.factorA.stat) || 
+         dynamicVars.includes(e.formula.factorB.stat)
+    );
+    
+    return condHas || effectHas;
+};
+
+/**
+ * Simulation-based Mana Calculation.
+ * If entity is provided, it uses the entity's current state for calculation.
+ * If not (e.g. in Editor), it uses a dummy entity with 0 current HP/Mana to calculate the 'Base' cost.
+ */
+export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: BattleEntity): number => {
     if (skill.effects.length === 0) return 0;
 
-    const dummyEntity: BattleEntity = {
+    const dummyEntity: BattleEntity = entity || {
         id: 'sim',
         config: { stats: stats } as any,
-        currentHp: 1, 
-        currentMana: 1,
+        currentHp: 0, 
+        currentMana: 0,
         buffs: []
     };
 
@@ -136,14 +156,14 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, p
         text: `${caster.config.name} 对 ${target.config.name} 造成 ${damage} 点物理伤害`
     });
     
-    // Cap HP
-    const maxHp = getTotalStat(caster, StatType.HP);
-    caster.currentHp = Math.min(caster.currentHp, maxHp);
+    // Removed Cap for basic attack lifesteal as well to be consistent
+    // caster.currentHp = Math.min(caster.currentHp, maxHp);
 };
 
 // Returns TRUE if skill was cast (mana consumed)
 export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleEntity, pushEvent: (evt: BattleEvent) => void): boolean => {
-    const manaCost = calculateManaCost(skill, caster.config.stats);
+    // Calculate cost based on CURRENT runtime stats
+    const manaCost = calculateManaCost(skill, caster.config.stats, caster);
     
     if (caster.currentMana < manaCost) {
         if (!skill.isPassive) {
@@ -236,15 +256,8 @@ export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleE
         }
     });
 
-    // Cap Stats after effects
-    const maxHpC = getTotalStat(caster, StatType.HP);
-    caster.currentHp = Math.min(caster.currentHp, maxHpC);
-    
-    const maxHpT = getTotalStat(target, StatType.HP);
-    target.currentHp = Math.min(target.currentHp, maxHpT);
-
-    const maxMpC = getTotalStat(caster, StatType.MANA);
-    caster.currentMana = Math.min(caster.currentMana, maxMpC);
+    // Uncapped Stats - We no longer clamp to Max HP/Mana after skill execution
+    // Allowing for overheal / overmana mechanics
     
     return true;
 };

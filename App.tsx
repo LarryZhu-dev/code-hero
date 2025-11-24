@@ -4,10 +4,10 @@ import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
 import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent } from './types';
-import { processSkill, checkConditions, getTotalStat, calculateManaCost, processBasicAttack } from './utils/gameEngine';
+import { processSkill, checkConditions, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
-import { Swords, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe, CheckCircle2, PlayCircle, Loader2, Eye } from 'lucide-react';
+import { Swords, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe, CheckCircle2, PlayCircle, Loader2, Eye, Copy, Check, X, Shield, Lock } from 'lucide-react';
 
 type AppView = 'MENU' | 'HERO_LIST' | 'EDITOR' | 'BATTLE_SETUP' | 'LOBBY' | 'BATTLE';
 type UserRole = 'HOST' | 'CHALLENGER' | 'SPECTATOR' | 'NONE';
@@ -23,6 +23,7 @@ const App: React.FC = () => {
     const [roomId, setRoomId] = useState('');
     const [lobbyLog, setLobbyLog] = useState<string[]>([]);
     const [myRole, setMyRole] = useState<UserRole>('NONE');
+    const [copiedRoomId, setCopiedRoomId] = useState(false);
     
     const [opponentChar, setOpponentChar] = useState<CharacterConfig | null>(null);
     const [opponentId, setOpponentId] = useState<string | null>(null);
@@ -35,6 +36,9 @@ const App: React.FC = () => {
     
     // Host specific lobby state
     const [spectators, setSpectators] = useState<{id: string, name: string}[]>([]);
+
+    // Inspection State
+    const [inspectedEntity, setInspectedEntity] = useState<BattleEntity | null>(null);
 
     // Input Locking
     const processingTurnRef = useRef(false);
@@ -98,6 +102,7 @@ const App: React.FC = () => {
         setAmIReady(false);
         setSpectators([]);
         setView('LOBBY');
+        setCopiedRoomId(false);
         
         let handshakeTimeout: ReturnType<typeof setTimeout>;
 
@@ -118,6 +123,12 @@ const App: React.FC = () => {
                 }
             }, 2000);
         });
+    };
+
+    const copyRoomId = () => {
+        navigator.clipboard.writeText(roomId);
+        setCopiedRoomId(true);
+        setTimeout(() => setCopiedRoomId(false), 2000);
     };
 
     // --- Message Handler Logic (Recreated every render to capture fresh state) ---
@@ -392,13 +403,20 @@ const App: React.FC = () => {
         // 1. MANA CHECK
         if (skillId !== 'basic_attack') {
             const skill = active.config.skills.find(s => s.id === skillId);
-            if (skill) {
-                const cost = calculateManaCost(skill, active.config.stats);
-                if (active.currentMana < cost) {
-                    if (isMyTurn) alert("法力值不足！");
-                    processingTurnRef.current = false;
-                    return; 
-                }
+            if (!skill) return;
+            
+            // PASSIVE CHECK - Should not be executable
+            if (skill.isPassive) {
+                 processingTurnRef.current = false;
+                 return;
+            }
+
+            // IMPORTANT: Calculate cost using current entity state for runtime values
+            const cost = calculateManaCost(skill, active.config.stats, active);
+            if (active.currentMana < cost) {
+                if (isMyTurn) alert("法力值不足！");
+                processingTurnRef.current = false;
+                return; 
             }
         }
 
@@ -438,7 +456,8 @@ const App: React.FC = () => {
                     if (triggeredSkillIds.has(uniqueTriggerKey)) return;
 
                     if (checkConditions(s, entity, enemyOfEntity, newState.turn)) {
-                        const cost = calculateManaCost(s, entity.config.stats);
+                        // Calculate cost using current entity state
+                        const cost = calculateManaCost(s, entity.config.stats, entity);
                         
                         // Check Mana before triggering
                         if (entity.currentMana >= cost) {
@@ -509,6 +528,9 @@ const App: React.FC = () => {
         const nextActive = newState.activePlayerId === newState.p1.id ? newState.p1 : newState.p2;
         const manaRegen = getTotalStat(nextActive, StatType.MANA_REGEN);
         if (manaRegen > 0) {
+            // Mana regen can also theoretically overcharge if we uncap everything, but standard regen usually stops at max
+            // Keeping min(max) for regen makes sense, but the request said "recovery skills" have no limit.
+            // Let's keep passive regen capped at max for game balance, only active skills break limits.
             nextActive.currentMana = Math.min(getTotalStat(nextActive, StatType.MANA), nextActive.currentMana + (getTotalStat(nextActive, StatType.MANA) * manaRegen / 100));
         }
 
@@ -587,7 +609,8 @@ const App: React.FC = () => {
             const timer = setTimeout(() => {
                 const enemy = battleState.p1.id === 'bot_enemy' ? battleState.p1 : battleState.p2;
                 const skills = enemy.config.skills.filter(s => !s.isPassive);
-                const affordable = skills.filter(s => calculateManaCost(s, enemy.config.stats) <= enemy.currentMana);
+                // Bot calculates costs based on its current state
+                const affordable = skills.filter(s => calculateManaCost(s, enemy.config.stats, enemy) <= enemy.currentMana);
                 const useSkill = affordable.length > 0 && Math.random() < 0.7;
 
                 executeTurn(useSkill ? affordable[Math.floor(Math.random() * affordable.length)].id : 'basic_attack');
@@ -604,10 +627,10 @@ const App: React.FC = () => {
         const isMyTurn = battleState.activePlayerId === playerId;
         if (!isMyTurn) return;
 
-        const activeEntity = battleState.p1.id === battleState.activePlayerId ? battleState.p1 : battleState.p2;
-        const customSkills = activeEntity.config.skills.filter(s => !s.isPassive);
+        // Use MY entity for skill selection
+        const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
         const allSkills = [
-            ...customSkills,
+            ...myEntity.config.skills,
             { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill
         ];
         
@@ -619,7 +642,10 @@ const App: React.FC = () => {
             } else if (e.key === 'ArrowLeft') {
                 setSelectedSkillIndex(prev => (prev - 1 + allSkills.length) % allSkills.length);
             } else if (e.key === 'Enter') {
-                executeTurn(allSkills[selectedSkillIndex % allSkills.length].id);
+                const skill = allSkills[selectedSkillIndex % allSkills.length];
+                if (!skill.isPassive) {
+                    executeTurn(skill.id);
+                }
             }
         };
 
@@ -628,10 +654,22 @@ const App: React.FC = () => {
     }, [view, battleState, playerId, selectedSkillIndex, executeTurn, myRole]);
 
     // Helper
-    const getSkillDescription = (skill: Skill, stats?: CharacterConfig['stats']) => {
+    const getSkillDescription = (skill: Skill, entity?: BattleEntity) => {
+        if (skill.isPassive) return "【被动技能】满足条件时自动触发，无法主动释放。";
         if (skill.id === 'basic_attack') return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
-        const cost = stats ? calculateManaCost(skill, stats) : 0;
-        let desc = `【消耗 ${cost} MP】`;
+        const stats = entity ? entity.config.stats : myChar?.stats;
+        if (!stats) return "";
+
+        const cost = calculateManaCost(skill, stats, entity);
+        const isDynamic = hasDynamicStats(skill);
+        
+        // Editor/Preview mode vs Battle mode text
+        let costText = `${cost}`;
+        if (!entity && isDynamic) {
+             costText += " + 战时加成";
+        }
+
+        let desc = `【消耗 ${costText} MP】`;
         if (skill.effects.length === 0) return desc + " 该模块为空，无任何效果。";
         const effectsDesc = skill.effects.map(e => {
             const formatTarget = (t: string) => t === 'SELF' ? '己方' : '敌方';
@@ -648,6 +686,12 @@ const App: React.FC = () => {
         return desc + effectsDesc;
     };
 
+    const handleEntityClick = (id: string) => {
+        if (!battleState) return;
+        const entity = [battleState.p1, battleState.p2].find(e => e.id === id);
+        if (entity) setInspectedEntity(entity);
+    };
+
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
             {/* Top Bar */}
@@ -662,6 +706,56 @@ const App: React.FC = () => {
             {/* Main Content Area */}
             <div className="flex-1 overflow-hidden relative">
                 
+                {/* --- INSPECTION MODAL --- */}
+                {inspectedEntity && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setInspectedEntity(null)}>
+                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-lg shadow-lg" style={{backgroundColor: inspectedEntity.config.avatarColor}}></div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">{inspectedEntity.config.name}</h3>
+                                        <div className="text-xs text-slate-400">技能列表</div>
+                                    </div>
+                                </div>
+                                <button onClick={() => setInspectedEntity(null)} className="text-slate-500 hover:text-white"><X size={24} /></button>
+                            </div>
+                            <div className="overflow-y-auto custom-scrollbar space-y-4 pr-2">
+                                {inspectedEntity.config.skills.map(skill => (
+                                    <div key={skill.id} className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="font-bold text-yellow-100 flex items-center gap-2">
+                                                {skill.name}
+                                                {skill.isPassive && <span className="text-[10px] bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">被动</span>}
+                                            </div>
+                                            <div className="text-xs text-slate-500 font-mono">{calculateManaCost(skill, inspectedEntity.config.stats, inspectedEntity)} MP</div>
+                                        </div>
+                                        <div className="text-xs text-slate-400 leading-relaxed">
+                                            {skill.isPassive ? (
+                                                <div className="space-y-1">
+                                                    <div className="text-blue-400 font-bold">触发条件:</div>
+                                                    {skill.conditions.map((c, i) => (
+                                                        <div key={i} className="pl-2">• {c.sourceTarget === 'SELF' ? '自身' : '敌人'}{c.variable} {c.operator} {c.value}</div>
+                                                    ))}
+                                                    <div className="text-green-400 font-bold mt-2">效果:</div>
+                                                    {skill.effects.map((e, i) => (
+                                                        <div key={i} className="pl-2">• {e.type} to {e.target}</div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                getSkillDescription(skill, inspectedEntity)
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                {inspectedEntity.config.skills.length === 0 && (
+                                    <div className="text-center text-slate-600 py-8">该角色没有自定义技能</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {view === 'MENU' && (
                     <div className="flex flex-col items-center justify-center h-full gap-12 animate-in fade-in zoom-in duration-500">
                         <h1 className="text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 retro-font drop-shadow-2xl">
@@ -703,7 +797,8 @@ const App: React.FC = () => {
                 {view === 'EDITOR' && (
                     <CharacterEditor 
                         existing={myChar!} 
-                        onSave={handleSaveChar} 
+                        onSave={handleSaveChar}
+                        onBack={() => setView('HERO_LIST')} 
                     />
                 )}
 
@@ -751,12 +846,27 @@ const App: React.FC = () => {
 
                 {view === 'LOBBY' && myChar && (
                     <div className="flex flex-col items-center justify-center h-full gap-8 p-12 relative">
-                        <div className="absolute top-8 text-slate-500 font-mono text-xs">ROOM: {roomId}</div>
+                        <div className="absolute top-12 flex flex-col items-center gap-2">
+                            <div className="text-slate-400 text-sm font-bold uppercase tracking-widest">Room ID</div>
+                            <div className="flex items-center gap-4">
+                                <div className="text-4xl font-mono font-bold text-white bg-slate-800 px-6 py-2 rounded-xl border border-slate-700 shadow-xl">
+                                    {roomId}
+                                </div>
+                                <button 
+                                    onClick={copyRoomId}
+                                    className="w-12 h-12 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-400 transition-all border border-slate-700"
+                                    title="复制房间号"
+                                >
+                                    {copiedRoomId ? <Check size={24} /> : <Copy size={24} />}
+                                </button>
+                            </div>
+                        </div>
+
                         <div className="absolute top-8 right-8 flex items-center gap-2 text-slate-400">
                             <Eye size={16}/> 观战: {spectators.length}
                         </div>
                         
-                        <h2 className="text-3xl font-bold retro-font text-white mb-8">对战大厅</h2>
+                        <h2 className="text-3xl font-bold retro-font text-white mb-8 mt-16">对战大厅</h2>
 
                         <div className="flex gap-12 items-center">
                             {/* Host Card */}
@@ -777,7 +887,6 @@ const App: React.FC = () => {
                             <div className="text-4xl font-black text-slate-700 italic">VS</div>
 
                             {/* Challenger Card */}
-                            {/* Improved Rendering Logic for Spectators */}
                             <div className="flex flex-col items-center gap-4">
                                 {(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : (myRole === 'SPECTATOR' ? spectatorChallengerChar : null))) ? (
                                     <div className={`relative w-48 h-64 bg-slate-800 rounded-xl border-2 flex flex-col items-center justify-center p-4 transition-all ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-slate-600'}`}>
@@ -866,6 +975,7 @@ const App: React.FC = () => {
                         <BattleScene 
                             gameState={battleState} 
                             onAnimationsComplete={handleAnimationComplete}
+                            onEntityClick={handleEntityClick}
                         />
                         
                         {/* HUD */}
@@ -874,7 +984,10 @@ const App: React.FC = () => {
                             <div className={`absolute top-0 bottom-0 w-1 bg-yellow-500 shadow-[0_0_10px_yellow] transition-all duration-500 ${battleState.activePlayerId === battleState.p1.id ? 'left-0 rounded-l' : 'right-0 rounded-r'}`}></div>
 
                             {/* P1 Status */}
-                            <div className={`flex gap-3 items-center transition-opacity duration-300 ${battleState.activePlayerId === battleState.p1.id ? 'opacity-100' : 'opacity-50 grayscale'}`}>
+                            <div 
+                                className={`flex gap-3 items-center transition-opacity duration-300 cursor-pointer p-2 rounded hover:bg-white/5 ${battleState.activePlayerId === battleState.p1.id ? 'opacity-100' : 'opacity-70'}`}
+                                onClick={() => handleEntityClick(battleState.p1.id)}
+                            >
                                 <div className="w-12 h-12 rounded-lg shadow-lg border border-blue-400" style={{backgroundColor: battleState.p1.config.avatarColor}}></div>
                                 <div>
                                     <div className="font-bold text-blue-100">{battleState.p1.config.name}</div>
@@ -893,7 +1006,10 @@ const App: React.FC = () => {
                             </div>
 
                             {/* P2 Status */}
-                            <div className={`flex gap-3 items-center text-right transition-opacity duration-300 ${battleState.activePlayerId === battleState.p2.id ? 'opacity-100' : 'opacity-50 grayscale'}`}>
+                            <div 
+                                className={`flex gap-3 items-center text-right transition-opacity duration-300 cursor-pointer p-2 rounded hover:bg-white/5 ${battleState.activePlayerId === battleState.p2.id ? 'opacity-100' : 'opacity-70'}`}
+                                onClick={() => handleEntityClick(battleState.p2.id)}
+                            >
                                 <div>
                                     <div className="font-bold text-red-100">{battleState.p2.config.name}</div>
                                     <div className="flex gap-3 text-xs font-mono justify-end">
@@ -910,40 +1026,62 @@ const App: React.FC = () => {
                             const isMyTurn = battleState.activePlayerId === playerId;
                             const isSpectating = myRole === 'SPECTATOR';
 
-                            if (!isSpectating && isMyTurn && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId) {
+                            // Render skill bar regardless of turn (unless Spectating or Finished)
+                            if (!isSpectating && !battleState.winnerId && battleState.phase !== 'FINISHED') {
                                 return (
-                                    <div className="mt-8 w-full max-w-4xl flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-8 duration-500">
+                                    <div className={`mt-8 w-full max-w-4xl flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-8 duration-500 transition-all ${!isMyTurn ? 'opacity-60 grayscale' : ''}`}>
                                         
+                                        {!isMyTurn && (
+                                            <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-30 bg-slate-900/80 px-4 py-2 rounded-full border border-slate-700 text-yellow-400 font-bold flex items-center gap-2">
+                                                <Lock size={16}/> 对手回合 - 技能仅供查看
+                                            </div>
+                                        )}
+
                                         <div className="flex justify-center items-center gap-4">
                                             {(() => {
-                                                const activeEntity = battleState.p1.id === battleState.activePlayerId ? battleState.p1 : battleState.p2;
-                                                const customSkills = activeEntity.config.skills.filter(s => !s.isPassive);
+                                                // Always show MY skills
+                                                const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                 const allSkills = [
-                                                    ...customSkills,
+                                                    ...myEntity.config.skills,
                                                     { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill
                                                 ];
                                                 
                                                 return allSkills.map((skill, idx) => {
                                                     const isSelected = idx === (selectedSkillIndex % allSkills.length);
-                                                    const cost = skill.id === 'basic_attack' ? 0 : calculateManaCost(skill, activeEntity.config.stats);
-                                                    const canAfford = activeEntity.currentMana >= cost;
+                                                    const cost = skill.id === 'basic_attack' ? 0 : calculateManaCost(skill, myEntity.config.stats, myEntity);
+                                                    const canAfford = myEntity.currentMana >= cost;
                                                     const isAttack = skill.id === 'basic_attack';
+                                                    const isPassive = skill.isPassive;
 
                                                     return (
                                                         <div 
                                                             key={skill.id} 
+                                                            onClick={() => {
+                                                                setSelectedSkillIndex(idx);
+                                                                if (isMyTurn && !isPassive && canAfford && !processingTurnRef.current) {
+                                                                    executeTurn(skill.id);
+                                                                }
+                                                            }}
                                                             className={`
-                                                                relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-between p-2 transition-all duration-200
-                                                                ${isSelected ? 'scale-110 z-10 shadow-[0_0_20px_rgba(59,130,246,0.4)]' : 'scale-95 opacity-60 grayscale'}
-                                                                ${isSelected ? (canAfford ? 'bg-slate-800 border-blue-400' : 'bg-red-950 border-red-500') : 'bg-slate-900 border-slate-700'}
+                                                                relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-between p-2 transition-all duration-200 cursor-pointer
+                                                                ${isSelected ? 'scale-110 z-10 shadow-[0_0_20px_rgba(59,130,246,0.4)]' : 'scale-95 opacity-60'}
+                                                                ${isSelected ? (isPassive ? 'bg-indigo-950 border-indigo-400' : canAfford ? 'bg-slate-800 border-blue-400' : 'bg-red-950 border-red-500') : 'bg-slate-900 border-slate-700'}
                                                             `}
                                                         >
-                                                            <div className={`absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full border ${canAfford ? 'bg-blue-900 border-blue-500 text-blue-200' : 'bg-red-900 border-red-500 text-white'}`}>
-                                                                {cost} MP
-                                                            </div>
+                                                            {isPassive && (
+                                                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500 whitespace-nowrap z-20">
+                                                                    PASSIVE
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {!isAttack && !isPassive && (
+                                                                <div className={`absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full border ${canAfford ? 'bg-blue-900 border-blue-500 text-blue-200' : 'bg-red-900 border-red-500 text-white'}`}>
+                                                                    {cost} MP
+                                                                </div>
+                                                            )}
 
-                                                            <div className={`flex-1 flex items-center justify-center ${canAfford ? (isAttack ? 'text-yellow-400' : 'text-purple-400') : 'text-red-500'}`}>
-                                                                {isAttack ? <Swords size={32} /> : <Zap size={32} />}
+                                                            <div className={`flex-1 flex items-center justify-center ${isPassive ? 'text-indigo-400' : canAfford ? (isAttack ? 'text-yellow-400' : 'text-purple-400') : 'text-red-500'}`}>
+                                                                {isPassive ? <Shield size={32} /> : isAttack ? <Swords size={32} /> : <Zap size={32} />}
                                                             </div>
 
                                                             <div className="w-full text-center text-[10px] font-bold truncate text-slate-300">
@@ -960,29 +1098,32 @@ const App: React.FC = () => {
                                         </div>
 
                                         <div className="bg-slate-900/90 border border-slate-700 rounded-xl p-6 flex flex-col items-center text-center shadow-2xl max-w-2xl mx-auto w-full min-h-[120px] relative">
-                                            <div className="absolute top-4 left-4 flex gap-1">
-                                                <div className="w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400"><ArrowLeft size={12}/></div>
-                                                <div className="w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400"><ArrowRight size={12}/></div>
-                                                <span className="text-xs text-slate-600 ml-2 self-center">选择</span>
-                                            </div>
-                                            <div className="absolute top-4 right-4 flex gap-2 items-center">
-                                                <span className="text-xs text-slate-600 self-center">确认</span>
-                                                <div className="px-2 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400 font-mono">ENTER</div>
-                                                <CornerDownLeft size={14} className="text-slate-500"/>
-                                            </div>
+                                            {isMyTurn && (
+                                                <>
+                                                    <div className="absolute top-4 left-4 flex gap-1">
+                                                        <div className="w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400"><ArrowLeft size={12}/></div>
+                                                        <div className="w-6 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400"><ArrowRight size={12}/></div>
+                                                        <span className="text-xs text-slate-600 ml-2 self-center">选择</span>
+                                                    </div>
+                                                    <div className="absolute top-4 right-4 flex gap-2 items-center">
+                                                        <span className="text-xs text-slate-600 self-center">确认</span>
+                                                        <div className="px-2 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400 font-mono">ENTER</div>
+                                                        <CornerDownLeft size={14} className="text-slate-500"/>
+                                                    </div>
+                                                </>
+                                            )}
 
                                             <div className="mt-2">
                                                 {(() => {
-                                                    const activeEntity = battleState.p1.id === battleState.activePlayerId ? battleState.p1 : battleState.p2;
-                                                    const customSkills = activeEntity.config.skills.filter(s => !s.isPassive);
-                                                    const allSkills = [...customSkills, { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill];
+                                                    const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
+                                                    const allSkills = [...myEntity.config.skills, { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill];
                                                     const selectedSkill = allSkills[selectedSkillIndex % allSkills.length];
                                                     
                                                     return (
                                                         <>
                                                             <h4 className="text-xl font-bold text-white mb-2">{selectedSkill.name}</h4>
                                                             <p className="text-slate-400 font-mono text-sm leading-relaxed max-w-lg">
-                                                                {getSkillDescription(selectedSkill, activeEntity.config.stats)}
+                                                                {getSkillDescription(selectedSkill, myEntity)}
                                                             </p>
                                                         </>
                                                     )
