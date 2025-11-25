@@ -1,11 +1,12 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
 import HeroAvatar from './components/HeroAvatar';
 import { GameLogo } from './components/GameLogo';
-import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent, DYNAMIC_STATS } from './types';
+import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent, DYNAMIC_STATS, BattleSession } from './types';
 import { processSkill, evaluateCondition, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
@@ -15,7 +16,7 @@ import {
     IconPlay, IconRefresh, IconSave, IconShield, IconSkull, IconStaff, IconSword,
     IconBrokenShield, IconVampire, IconDroplet, IconSpark, IconMuscle, IconBack
 } from './components/PixelIcons';
-import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X, TowerControl as Tower, Menu } from 'lucide-react';
+import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X, TowerControl as Tower, Menu, AlertTriangle } from 'lucide-react';
 
 type AppView = 'MENU' | 'HERO_MANAGE' | 'EDITOR' | 'BATTLE_SETUP' | 'PUBLIC_HALL' | 'LOBBY' | 'BATTLE' | 'TOWER_SELECT';
 type UserRole = 'HOST' | 'CHALLENGER' | 'SPECTATOR' | 'NONE';
@@ -181,6 +182,10 @@ const App: React.FC = () => {
     const [opponentRematchRequest, setOpponentRematchRequest] = useState(false);
     const [opponentLeft, setOpponentLeft] = useState(false);
 
+    // Reconnection State
+    const [showReconnectModal, setShowReconnectModal] = useState<BattleSession | null>(null);
+    const [opponentDisconnectTime, setOpponentDisconnectTime] = useState<number | null>(null);
+
     // Tower State
     const [towerProgress, setTowerProgress] = useState(1);
 
@@ -195,6 +200,41 @@ const App: React.FC = () => {
     useEffect(() => {
         battleStateRef.current = battleState;
     }, [battleState]);
+
+    // Check for previous session on load
+    useEffect(() => {
+        const session = StorageService.getBattleSession();
+        if (session) {
+            const now = Date.now();
+            // If session is older than 60s + some buffer, assume expired
+            if (now - session.lastActiveTime > 65000) {
+                // Expired - notify user they lost
+                alert("您在上一场对局中意外断开连接超过60秒，已被系统判负。");
+                StorageService.clearBattleSession();
+            } else {
+                // Valid - prompt to reconnect
+                setShowReconnectModal(session);
+            }
+        }
+    }, []);
+
+    // Session Persistence Loop
+    useEffect(() => {
+        if (!battleState || battleState.phase === 'FINISHED') return;
+        if (battleState.mode !== 'ONLINE_PVP') return;
+
+        const interval = setInterval(() => {
+            const session: BattleSession = {
+                roomId: battleState.roomId || '',
+                mode: battleState.mode,
+                lastActiveTime: Date.now(),
+                myId: playerId
+            };
+            StorageService.saveBattleSession(session);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [battleState?.mode, battleState?.roomId, battleState?.phase, playerId]);
 
     // Load Last Used Hero
     useEffect(() => {
@@ -371,8 +411,9 @@ const App: React.FC = () => {
         }, true);
     };
 
-    const joinPrivateRoom = () => {
-        if (!roomId) {
+    const joinPrivateRoom = (rId?: string) => {
+        const targetRoom = rId || roomId;
+        if (!targetRoom) {
             alert("请输入房间号");
             return;
         }
@@ -381,19 +422,27 @@ const App: React.FC = () => {
         setBattleOrigin('PRIVATE');
         net.disconnect();
         setupLobbyState();
+        if (rId) setRoomId(rId); 
         setView('LOBBY');
         
         let handshakeTimeout: ReturnType<typeof setTimeout>;
 
-        net.connect(roomId, (action, data) => handleMessageRef.current?.(action, data), () => {
+        net.connect(targetRoom, (action, data) => handleMessageRef.current?.(action, data), () => {
             setLobbyLog(prev => [...prev, '已连接服务器', '正在寻找房主...']);
-            net.publish('query_host', {});
-            handshakeTimeout = setTimeout(() => {
-                if (myRoleRef.current === 'NONE') {
-                    setMyRole('HOST');
-                    setLobbyLog(prev => [...prev, '未发现房主，自动创建房间', '我是房主，等待挑战者...']);
-                }
-            }, 2000);
+            
+            // If this is a reconnect attempt
+            if (showReconnectModal && targetRoom === showReconnectModal.roomId) {
+                net.sendRejoin();
+                setShowReconnectModal(null);
+            } else {
+                net.publish('query_host', {});
+                handshakeTimeout = setTimeout(() => {
+                    if (myRoleRef.current === 'NONE' && view !== 'BATTLE') {
+                        setMyRole('HOST');
+                        setLobbyLog(prev => [...prev, '未发现房主，自动创建房间', '我是房主，等待挑战者...']);
+                    }
+                }, 2000);
+            }
         });
     };
 
@@ -409,6 +458,7 @@ const App: React.FC = () => {
         setAmIReady(false);
         setSpectators([]);
         setCopiedRoomId(false);
+        setOpponentDisconnectTime(null);
     };
 
     const copyRoomId = () => {
@@ -556,6 +606,15 @@ const App: React.FC = () => {
                 net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
             }
         }
+        else if (action === 'rejoin') {
+            // A player is trying to reconnect
+            if (battleStateRef.current && (data.id === battleStateRef.current.p1.id || data.id === battleStateRef.current.p2.id)) {
+                // If it's the disconnected opponent
+                setOpponentDisconnectTime(null);
+                setLobbyLog(prev => [...prev, `玩家 ${data.id.slice(0,6)} 重连成功！`]);
+                net.sendState(battleStateRef.current);
+            }
+        }
         else if (action === 'join_request') {
             if (myRoleRef.current === 'HOST') {
                 if (!opponentId && !challengerId) {
@@ -637,23 +696,11 @@ const App: React.FC = () => {
                 const isP2 = currentBattle.p2.id === leavingId;
 
                 if (isP1 || isP2) {
-                    const winnerId = isP1 ? currentBattle.p2.id : currentBattle.p1.id;
-                    const winnerName = isP1 ? currentBattle.p2.config.name : currentBattle.p1.config.name;
-                    const leaverName = isP1 ? currentBattle.p1.config.name : currentBattle.p2.config.name;
-
-                    const newState = { ...currentBattle };
-                    newState.phase = 'FINISHED';
-                    newState.winnerId = winnerId;
-                    newState.log.push(`${leaverName} 断开连接，${winnerName} 自动获胜！`);
-                    
-                    setBattleState(newState);
-                    // Force animation complete check to stop turns
-                    processingTurnRef.current = false;
-                    
-                    // Only one remaining client needs to broadcast, or both can (idempotent)
-                    if (playerId === winnerId) {
-                        net.sendState(newState);
+                    // Do NOT end game immediately. Wait for reconnect.
+                    if (!opponentDisconnectTime) {
+                        setOpponentDisconnectTime(Date.now());
                     }
+                    return; // Don't process other leave logic
                 }
             }
 
@@ -707,24 +754,63 @@ const App: React.FC = () => {
             }
         }
         else if (action === 'sync_state') {
+            // Restore session
+            if (opponentDisconnectTime) setOpponentDisconnectTime(null);
+            
             setBattleState(data.state);
             if (data.state.turn === 1 && data.state.phase !== 'FINISHED') {
                 setMyRematchRequest(false);
                 setOpponentRematchRequest(false);
                 setOpponentLeft(false);
             }
-            if (view !== 'BATTLE') setView('BATTLE');
+            // If reconnecting and I am spectating or playing
+            if (view !== 'BATTLE') {
+                 if (data.state.p1.id === playerId || data.state.p2.id === playerId) {
+                     // Resuming play
+                     setMyRole(data.state.p1.id === playerId ? 'HOST' : 'CHALLENGER'); 
+                 }
+                 setView('BATTLE');
+            }
         }
         else if (action === 'rematch_request') {
             if (data.sender !== playerId) {
                 setOpponentRematchRequest(true);
             }
         }
-    }, [myRole, opponentId, challengerId, opponentChar, spectators, myChar, playerId, view, challengeSentTo, battleOrigin]);
+    }, [myRole, opponentId, challengerId, opponentChar, spectators, myChar, playerId, view, challengeSentTo, battleOrigin, opponentDisconnectTime, showReconnectModal]);
 
     useEffect(() => {
         handleMessageRef.current = handleMessage;
     }, [handleMessage]);
+
+    // Opponent Disconnect Timer Logic
+    useEffect(() => {
+        if (!opponentDisconnectTime) return;
+        
+        const timer = setInterval(() => {
+            const elapsed = Date.now() - opponentDisconnectTime;
+            if (elapsed > 60000) {
+                // Timeout exceeded, declare win
+                if (battleStateRef.current && !battleStateRef.current.winnerId) {
+                    const current = battleStateRef.current;
+                    const newState = { ...current };
+                    const isP1Me = current.p1.id === playerId;
+                    const winnerId = isP1Me ? current.p1.id : current.p2.id;
+                    const winnerName = isP1Me ? current.p1.config.name : current.p2.config.name;
+                    
+                    newState.phase = 'FINISHED';
+                    newState.winnerId = winnerId;
+                    newState.log.push(`对手断开连接超时，${winnerName} 获胜！`);
+                    
+                    setBattleState(newState);
+                    setOpponentDisconnectTime(null);
+                    StorageService.clearBattleSession(); // Game over, clear session
+                }
+            }
+        }, 1000);
+        
+        return () => clearInterval(timer);
+    }, [opponentDisconnectTime, playerId]);
 
     useEffect(() => {
         if (battleState?.mode === 'ONLINE_PVP' && myRole === 'HOST') {
@@ -765,6 +851,7 @@ const App: React.FC = () => {
         setMyRematchRequest(false);
         setOpponentRematchRequest(false);
         setOpponentLeft(false);
+        setOpponentDisconnectTime(null);
 
         const p1Speed = getTotalStat({ config: hostConfig } as any, StatType.SPEED);
         const p2Speed = getTotalStat({ config: challengerConfig } as any, StatType.SPEED);
@@ -922,6 +1009,11 @@ const App: React.FC = () => {
     const handleAnimationComplete = useCallback(() => {
         processingTurnRef.current = false; 
         if (!battleState) return;
+
+        // CRITICAL FIX: If battle is already finished (via surrender or logic update during animation), do not proceed.
+        // Prevents state overwrites when opponent turn ends but game state changed elsewhere.
+        if (battleState.phase === 'FINISHED' || battleState.winnerId) return;
+
         if (battleState.mode === 'ONLINE_PVP' && myRole !== 'HOST') return;
 
         const newState = { ...battleState };
@@ -940,6 +1032,7 @@ const App: React.FC = () => {
             if (newState.mode === 'TOWER' && active.id === playerId && newState.towerLevel) {
                  StorageService.saveTowerProgress(newState.towerLevel + 1);
             }
+            StorageService.clearBattleSession();
             return;
         }
         if (active.currentHp <= 0) {
@@ -948,6 +1041,7 @@ const App: React.FC = () => {
             newState.log.push(`${opponent.config.name} 获胜！`);
             setBattleState(newState);
             if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
+            StorageService.clearBattleSession();
             return;
         }
 
@@ -979,6 +1073,7 @@ const App: React.FC = () => {
         newState.log.push(`${myChar?.name || '玩家'} 认输了。`);
         setBattleState(newState);
         if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
+        StorageService.clearBattleSession();
     };
 
     useEffect(() => {
@@ -1205,8 +1300,49 @@ const App: React.FC = () => {
         );
     }
 
+    // Reconnect Prompt Modal
+    const ReconnectModal = () => {
+        if (!showReconnectModal) return null;
+        return (
+            <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                <div className="bg-slate-900 border-4 border-yellow-500 shadow-[0_0_30px_rgba(234,179,8,0.3)] max-w-md w-full p-6 animate-in zoom-in duration-200">
+                    <div className="flex items-center gap-3 text-yellow-400 mb-4">
+                        <AlertTriangle size={32} />
+                        <h2 className="text-xl font-bold retro-font">检测到未完成的对局</h2>
+                    </div>
+                    <p className="text-slate-300 mb-6 leading-relaxed">
+                        您有一场正在进行的 {showReconnectModal.mode === 'ONLINE_PVP' ? 'PVP 对局' : '战斗'}。
+                        <br/><br/>
+                        房间号: <span className="font-mono text-white bg-slate-800 px-2 py-0.5">{showReconnectModal.roomId}</span>
+                    </p>
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={() => {
+                                StorageService.clearBattleSession();
+                                setShowReconnectModal(null);
+                                // Treat as surrender if declined
+                                alert("您已放弃重连，该对局将被视为逃跑判负。");
+                            }}
+                            className="flex-1 pixel-btn pixel-btn-danger border-2 py-3"
+                        >
+                            放弃 (判负)
+                        </button>
+                        <button 
+                            onClick={() => joinPrivateRoom(showReconnectModal.roomId)}
+                            className="flex-1 pixel-btn pixel-btn-success border-2 py-3"
+                        >
+                            重新连接
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
+            <ReconnectModal />
+            
             <div className="h-12 border-b-4 border-slate-700 bg-slate-900 flex items-center px-4 md:px-6 justify-between select-none z-50 shrink-0">
                 <span className="retro-font text-blue-400 text-sm cursor-pointer" onClick={() => {
                     net.disconnect();
@@ -1245,6 +1381,20 @@ const App: React.FC = () => {
                                 onReject={() => handleRespondChallenge(challenge, false)}
                             />
                         ))}
+                    </div>
+                )}
+
+                {/* Opponent Disconnect Warning Overlay */}
+                {opponentDisconnectTime && !battleState?.winnerId && (
+                    <div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center pointer-events-none">
+                        <div className="bg-slate-900 border-4 border-red-500 p-6 shadow-2xl animate-pulse">
+                            <h2 className="text-red-500 font-bold text-xl mb-2 flex items-center gap-2">
+                                <AlertTriangle /> 对手断开连接
+                            </h2>
+                            <p className="text-white font-mono">
+                                等待重连: {60 - Math.floor((Date.now() - opponentDisconnectTime) / 1000)}s
+                            </p>
+                        </div>
                     </div>
                 )}
 
@@ -1408,7 +1558,7 @@ const App: React.FC = () => {
                                             onChange={e => setRoomId(e.target.value)}
                                         />
                                         <button 
-                                            onClick={joinPrivateRoom}
+                                            onClick={() => joinPrivateRoom()}
                                             className="pixel-btn pixel-btn-primary px-3"
                                         >
                                             <IconPlay size={16} />
@@ -1789,6 +1939,7 @@ const App: React.FC = () => {
                                         <button 
                                             onClick={() => { 
                                                 net.disconnect(); 
+                                                StorageService.clearBattleSession();
                                                 if (battleState.mode === 'LOCAL_BOT') setView('BATTLE_SETUP');
                                                 else if (battleState.mode === 'TOWER') setView('TOWER_SELECT');
                                                 else if(battleOrigin === 'PUBLIC') enterPublicHall(); 
@@ -1852,7 +2003,7 @@ const App: React.FC = () => {
                                             </div>
                                         )}
 
-                                        <div className="flex justify-center items-center gap-2 md:gap-4 overflow-x-auto pb-4 md:pb-0 px-4 w-full md:w-auto no-scrollbar">
+                                        <div className="flex flex-wrap justify-center items-center gap-2 px-4 w-full">
                                             {(() => {
                                                 const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                 const sortedSkills = getSortedSkills(myEntity);

@@ -1,4 +1,5 @@
 
+
 import mqtt from 'mqtt';
 import { BattleState, CharacterConfig } from '../types';
 
@@ -57,6 +58,7 @@ export class NetworkService {
                     if (isPublicHall) {
                         this.publish('presence_request', {}); // Ask who is here
                     } else {
+                        // Standard join message
                         this.publish('join', { id: this.playerId });
                     }
                     if (onConnect) onConnect();
@@ -119,6 +121,10 @@ export class NetworkService {
 
     sendRematch() {
         this.publish('rematch_request', {});
+    }
+    
+    sendRejoin() {
+        this.publish('rejoin', { id: this.playerId });
     }
 
     // Public Hall Methods

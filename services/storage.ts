@@ -1,11 +1,12 @@
 
 
-import { CharacterConfig, Skill, Effect, INITIAL_STATS, StatType } from "../types";
+import { CharacterConfig, Skill, Effect, INITIAL_STATS, StatType, BattleSession } from "../types";
 
 const STORAGE_KEY = 'cw_heroes_v1';
 const DELETED_DEFAULTS_KEY = 'cw_deleted_defaults';
 const LAST_HERO_KEY = 'cw_last_hero_id';
 const TOWER_PROGRESS_KEY = 'cw_tower_progress';
+const BATTLE_SESSION_KEY = 'cw_battle_session';
 
 // Migration helper for v1 stat name changes & Skill Logic Structure
 const migrateCharacter = (char: CharacterConfig): CharacterConfig => {
@@ -328,5 +329,24 @@ export const StorageService = {
         if (level > current) {
             localStorage.setItem(TOWER_PROGRESS_KEY, level.toString());
         }
+    },
+
+    // --- BATTLE SESSION STORAGE (For Reconnect) ---
+    saveBattleSession: (session: BattleSession) => {
+        localStorage.setItem(BATTLE_SESSION_KEY, JSON.stringify(session));
+    },
+
+    getBattleSession: (): BattleSession | null => {
+        const raw = localStorage.getItem(BATTLE_SESSION_KEY);
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    },
+
+    clearBattleSession: () => {
+        localStorage.removeItem(BATTLE_SESSION_KEY);
     }
 };

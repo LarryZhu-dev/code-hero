@@ -207,6 +207,13 @@ export interface BattleEntity {
     buffs: any[]; // Simplified for now
 }
 
+export interface BattleSession {
+    roomId: string;
+    mode: BattleMode;
+    lastActiveTime: number;
+    myId: string;
+}
+
 export const INITIAL_STATS: CharacterStats = {
     base: Object.values(StatType).reduce((acc, key) => ({ ...acc, [key]: 0 }), {} as any),
     percent: Object.values(StatType).reduce((acc, key) => ({ ...acc, [key]: 0 }), {} as any),
