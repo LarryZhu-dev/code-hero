@@ -637,7 +637,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
 
             const spawnText = (text: string, x: number, y: number, color: string = '#ffffff') => {
                 const style = new PIXI.TextStyle({
-                    fontFamily: '"Press Start 2P", cursive',
+                    fontFamily: '"Fusion Pixel", "Press Start 2P", cursive',
                     fontSize: 20,
                     fill: color,
                     stroke: { color: '#000000', width: 4 },

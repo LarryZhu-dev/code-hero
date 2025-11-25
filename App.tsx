@@ -332,18 +332,28 @@ const App: React.FC = () => {
         const hostId = playerId;
         const challengerId = mode === 'LOCAL_BOT' ? 'bot_enemy' : (opponentId || 'unknown_challenger');
 
+        // Calculate Initial Max Stats (Standard Config calculation)
+        const hostMaxHp = getTotalStat({ config: hostConfig } as any, StatType.HP);
+        const hostMaxMana = getTotalStat({ config: hostConfig } as any, StatType.MANA);
+        const challengerMaxHp = getTotalStat({ config: challengerConfig } as any, StatType.HP);
+        const challengerMaxMana = getTotalStat({ config: challengerConfig } as any, StatType.MANA);
+
         const entity1: BattleEntity = { 
             id: hostId,
             config: hostConfig, 
-            currentHp: getTotalStat({ config: hostConfig } as any, StatType.HP),
-            currentMana: getTotalStat({ config: hostConfig } as any, StatType.MANA),
+            currentHp: hostMaxHp,
+            currentMana: hostMaxMana,
+            maxHp: hostMaxHp,
+            maxMana: hostMaxMana,
             buffs: [] 
         };
         const entity2: BattleEntity = { 
             id: challengerId,
             config: challengerConfig, 
-            currentHp: getTotalStat({ config: challengerConfig } as any, StatType.HP),
-            currentMana: getTotalStat({ config: challengerConfig } as any, StatType.MANA),
+            currentHp: challengerMaxHp,
+            currentMana: challengerMaxMana,
+            maxHp: challengerMaxHp,
+            maxMana: challengerMaxMana,
             buffs: [] 
         };
         

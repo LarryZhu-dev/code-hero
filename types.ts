@@ -155,6 +155,8 @@ export interface BattleEntity {
     config: CharacterConfig;
     currentHp: number;
     currentMana: number;
+    maxHp: number;
+    maxMana: number;
     buffs: any[]; // Simplified for now
 }
 

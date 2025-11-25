@@ -10,6 +10,14 @@ export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
     if (stat === StatType.CURRENT_MANA) {
         return entity.currentMana;
     }
+    // Return runtime Max HP/Mana if available
+    if (stat === StatType.HP && entity.maxHp !== undefined) {
+        return entity.maxHp;
+    }
+    if (stat === StatType.MANA && entity.maxMana !== undefined) {
+        return entity.maxMana;
+    }
+
     if (stat === StatType.CURRENT_HP_PERC) {
         const max = getTotalStat(entity, StatType.HP);
         return max > 0 ? (entity.currentHp / max) * 100 : 0;
@@ -85,8 +93,16 @@ export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: 
         config: { stats: stats } as any,
         currentHp: 0, 
         currentMana: 0,
+        maxHp: 0,
+        maxMana: 0,
         buffs: []
     };
+
+    // If not provided a live entity, init max stats from config
+    if (!entity) {
+        dummyEntity.maxHp = Math.max(0, (stats.base[StatType.HP] || 0) * (1 + (stats.percent[StatType.HP] || 0) / 100));
+        dummyEntity.maxMana = Math.max(0, (stats.base[StatType.MANA] || 0) * (1 + (stats.percent[StatType.MANA] || 0) / 100));
+    }
 
     let totalEstimatedValue = 0;
 
@@ -150,6 +166,9 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, p
     if (lifesteal > 0) {
         const healAmt = Math.floor(damage * (lifesteal / 100));
         caster.currentHp += healAmt;
+        // Overheal expands Max HP
+        if (caster.currentHp > caster.maxHp) caster.maxHp = caster.currentHp;
+
         if (healAmt > 0) {
             pushEvent({ type: 'HEAL', targetId: caster.id, value: healAmt, color: '#4ade80' });
         }
@@ -275,6 +294,8 @@ export const processSkill = (
             if (lifesteal > 0) {
                 const heal = Math.floor(damage * (lifesteal / 100));
                 caster.currentHp += heal;
+                // Overheal check
+                if (caster.currentHp > caster.maxHp) caster.maxHp = caster.currentHp;
                 if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
@@ -309,6 +330,8 @@ export const processSkill = (
             if (omnivamp > 0) {
                 const heal = Math.floor(damage * (omnivamp / 100));
                 caster.currentHp += heal;
+                // Overheal check
+                if (caster.currentHp > caster.maxHp) caster.maxHp = caster.currentHp;
                 if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
@@ -338,6 +361,10 @@ export const processSkill = (
                 if (stat === StatType.CURRENT_HP) {
                     if (val > 0) {
                         effectTarget.currentHp += val;
+                        // Overheal check
+                        if (effectTarget.currentHp > effectTarget.maxHp) {
+                            effectTarget.maxHp = effectTarget.currentHp;
+                        }
                         pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
                     } else if (val < 0) {
                         const dmg = Math.abs(val);
@@ -346,13 +373,49 @@ export const processSkill = (
                     }
                 } else if (stat === StatType.CURRENT_MANA) {
                      effectTarget.currentMana += val;
+                     // Overmana check
+                     if (effectTarget.currentMana > effectTarget.maxMana) {
+                         effectTarget.maxMana = effectTarget.currentMana;
+                     }
                      if (val !== 0) {
                          pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
                      }
                 } else {
                     // Buff/Debuff Base Stat
-                    // Safely check if stat exists in base stats
-                    if (typeof effectTarget.config.stats.base[stat] === 'number') {
+                    if (stat === StatType.HP) {
+                        // Directly modifying Max HP
+                        effectTarget.maxHp += val;
+                        if (effectTarget.maxHp < 1) effectTarget.maxHp = 1;
+                        // If current HP > new Max HP (due to decrease), clamp it? 
+                        // Or logic: "If max HP decreases, current HP stays unless it's > max".
+                        // Let's ensure currentHp <= maxHp if maxHp was reduced below it.
+                        if (effectTarget.currentHp > effectTarget.maxHp) {
+                            effectTarget.currentHp = effectTarget.maxHp;
+                        }
+                        const sign = val >= 0 ? '+' : '';
+                        pushEvent({
+                            type: 'STAT_CHANGE',
+                            targetId: effectTarget.id,
+                            stat: stat,
+                            value: val,
+                            text: `${sign}${val} MaxHP`
+                        });
+                    } else if (stat === StatType.MANA) {
+                        effectTarget.maxMana += val;
+                        if (effectTarget.maxMana < 0) effectTarget.maxMana = 0;
+                        if (effectTarget.currentMana > effectTarget.maxMana) {
+                            effectTarget.currentMana = effectTarget.maxMana;
+                        }
+                        const sign = val >= 0 ? '+' : '';
+                        pushEvent({
+                            type: 'STAT_CHANGE',
+                            targetId: effectTarget.id,
+                            stat: stat,
+                            value: val,
+                            text: `${sign}${val} MaxMP`
+                        });
+                    } else if (typeof effectTarget.config.stats.base[stat] === 'number') {
+                        // Legacy handling for other stats (AD, AP...)
                         effectTarget.config.stats.base[stat] += val;
                         const sign = val >= 0 ? '+' : '';
                         
