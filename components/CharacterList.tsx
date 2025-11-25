@@ -90,17 +90,17 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack, mode = 'MANA
     };
 
     return (
-        <div className="h-full w-full p-8 bg-slate-900 flex flex-col">
-            <div className="flex justify-between items-center mb-8 shrink-0">
-                <h2 className="text-3xl font-bold text-white retro-font drop-shadow-md">
+        <div className="h-full w-full p-4 md:p-8 bg-slate-900 flex flex-col">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 shrink-0 gap-4">
+                <h2 className="text-2xl md:text-3xl font-bold text-white retro-font drop-shadow-md">
                     {mode === 'MANAGE' ? '英雄名册' : '选择出战英雄'}
                 </h2>
                 {mode === 'MANAGE' && (
-                    <div className="flex gap-4">
-                        <button onClick={handleImport} className="pixel-btn pixel-btn-secondary border-2 flex items-center justify-center gap-2">
+                    <div className="flex gap-4 w-full md:w-auto">
+                        <button onClick={handleImport} className="flex-1 md:flex-none pixel-btn pixel-btn-secondary border-2 flex items-center justify-center gap-2">
                             <IconDownload size={16} /> 导入
                         </button>
-                        <button onClick={handleCreate} className="pixel-btn pixel-btn-primary border-2 flex items-center justify-center gap-2">
+                        <button onClick={handleCreate} className="flex-1 md:flex-none pixel-btn pixel-btn-primary border-2 flex items-center justify-center gap-2">
                             <IconPlus size={16} /> 新建角色
                         </button>
                     </div>
@@ -113,7 +113,7 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack, mode = 'MANA
                     <p className="retro-font">暂无英雄，请创建或导入</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto pb-20 custom-scrollbar p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 overflow-y-auto pb-20 custom-scrollbar p-1">
                     {heroes.map(hero => {
                         const weaponName = hero.appearance?.weapon ? WEAPON_NAMES[hero.appearance.weapon] : '长剑';
                         
@@ -121,7 +121,7 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack, mode = 'MANA
                             <div 
                                 key={hero.id} 
                                 onClick={() => onSelect(hero)}
-                                className={`pixel-border bg-slate-800 p-6 transition-all cursor-pointer flex flex-col gap-3 group relative active:translate-y-1 active:shadow-none shadow-[4px_4px_0_0_rgba(0,0,0,0.5)] border-4 ${mode === 'SELECT' ? 'hover:border-green-500' : 'hover:border-slate-500'}`}
+                                className={`pixel-border bg-slate-800 p-4 md:p-6 transition-all cursor-pointer flex flex-col gap-3 group relative active:translate-y-1 active:shadow-none shadow-[4px_4px_0_0_rgba(0,0,0,0.5)] border-4 ${mode === 'SELECT' ? 'hover:border-green-500' : 'hover:border-slate-500'}`}
                             >
                                 <div className="flex justify-between items-start mb-2">
                                     <div className="border-4 border-slate-900 bg-slate-950 p-1 shrink-0">

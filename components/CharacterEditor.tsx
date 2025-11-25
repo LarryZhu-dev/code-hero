@@ -137,6 +137,8 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
             }
 
             containerRef.current.innerHTML = '';
+            app.canvas.style.width = '100%';
+            app.canvas.style.height = '100%';
             containerRef.current.appendChild(app.canvas);
             appRef.current = app;
 
@@ -285,12 +287,12 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
-            <div className="bg-slate-900 border-4 border-slate-600 shadow-2xl p-4 w-[640px] relative" onClick={e => e.stopPropagation()}>
+            <div className="bg-slate-900 border-4 border-slate-600 shadow-2xl p-4 w-[95vw] max-w-[640px] relative" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-white font-bold retro-font flex items-center gap-2"><IconEye size={20}/> 特效预览</h3>
                     <button onClick={onClose} className="text-slate-400 hover:text-white"><IconX size={20}/></button>
                 </div>
-                <div ref={containerRef} className="w-[600px] h-[400px] border-4 border-slate-800 bg-black overflow-hidden mx-auto"></div>
+                <div ref={containerRef} className="w-full aspect-[3/2] border-4 border-slate-800 bg-black overflow-hidden mx-auto"></div>
                 <div className="text-center text-xs text-slate-500 mt-2 font-mono">预览动画每 3 秒循环一次</div>
             </div>
         </div>
@@ -415,7 +417,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     };
 
     return (
-        <div className="h-full flex flex-col overflow-hidden bg-slate-900 text-white p-4 relative">
+        <div className="h-full flex flex-col overflow-y-auto lg:overflow-hidden bg-slate-900 text-white p-4 relative">
             {previewEffect && (
                 <SkillVisualPreview 
                     effect={previewEffect.effect} 
@@ -424,10 +426,10 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 />
             )}
 
-            {/* Global Hover Tooltip for Stats to avoid clipping */}
+            {/* Global Hover Tooltip for Stats to avoid clipping (Desktop only) */}
             {hoveredStat && (
                 <div 
-                    className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] w-[600px] bg-slate-900 text-white border-4 border-slate-500 shadow-[0_0_20px_rgba(0,0,0,0.8)] pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-200"
+                    className="hidden lg:block fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] w-[600px] bg-slate-900 text-white border-4 border-slate-500 shadow-[0_0_20px_rgba(0,0,0,0.8)] pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-200"
                 >
                     <div className="flex items-stretch">
                         <div className="bg-slate-800 p-4 flex items-center justify-center border-r-4 border-slate-600">
@@ -445,26 +447,26 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 </div>
             )}
 
-            <header className="flex justify-between items-center mb-6 border-b-4 border-slate-700 pb-4 bg-slate-900 shrink-0">
-                <div className="flex items-center gap-4">
+            <header className="flex flex-col md:flex-row justify-between items-center mb-6 border-b-4 border-slate-700 pb-4 bg-slate-900 shrink-0 gap-4">
+                <div className="flex items-center gap-4 w-full md:w-auto">
                     <button onClick={onBack} className="pixel-btn pixel-btn-secondary border-2">
                         <IconBack size={20} />
                     </button>
                     <input 
                         value={char.name} 
                         onChange={e => setChar({...char, name: e.target.value})}
-                        className="bg-slate-950 text-2xl font-bold border-b-4 border-slate-700 focus:border-blue-500 outline-none transition-all px-2 py-1 retro-font"
+                        className="flex-1 md:flex-none bg-slate-950 text-2xl font-bold border-b-4 border-slate-700 focus:border-blue-500 outline-none transition-all px-2 py-1 retro-font min-w-0"
                         placeholder="角色名称"
                     />
                     
-                    <RoleBadge role={char.role || 'WARRIOR'} />
+                    <RoleBadge role={char.role || 'WARRIOR'} className="hidden md:flex" />
                 </div>
-                <div className="flex gap-3">
-                    <button onClick={exportConfig} className="pixel-btn pixel-btn-secondary border-2 flex items-center justify-center gap-2 px-4 py-2 font-bold">
+                <div className="flex gap-3 w-full md:w-auto">
+                    <button onClick={exportConfig} className="flex-1 md:flex-none pixel-btn pixel-btn-secondary border-2 flex items-center justify-center gap-2 px-4 py-2 font-bold">
                         <IconDownload size={18} /> 导出
                     </button>
-                    <button onClick={handleSave} className="pixel-btn pixel-btn-primary border-2 flex items-center justify-center gap-2 px-4 py-2 font-bold">
-                        <IconSave size={18} /> 保存角色
+                    <button onClick={handleSave} className="flex-1 md:flex-none pixel-btn pixel-btn-primary border-2 flex items-center justify-center gap-2 px-4 py-2 font-bold">
+                        <IconSave size={18} /> 保存
                     </button>
                 </div>
             </header>
@@ -487,14 +489,14 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 </button>
             </div>
 
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-visible lg:overflow-hidden min-h-0">
                 
                 {/* --- CORE PANEL (Stats & Skills) --- */}
                 {activeTab === 'CORE' && (
-                <div className="w-full h-full flex gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="w-full h-full flex flex-col lg:flex-row gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300 pb-20 lg:pb-0">
                     
-                    {/* COL 1: STATS (40%) */}
-                    <div className="w-[45%] flex flex-col pixel-border bg-slate-800 overflow-hidden min-w-[400px]">
+                    {/* COL 1: STATS */}
+                    <div className="w-full lg:w-[45%] flex flex-col pixel-border bg-slate-800 overflow-hidden lg:min-w-[400px]">
                         <div className="bg-slate-900 p-3 border-b-4 border-slate-700 z-10">
                             <h3 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2 retro-font">
                                 <IconShield size={14}/> 基础属性
@@ -522,7 +524,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比 (%)</span>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-slate-900/50">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-slate-900/50 max-h-[400px] lg:max-h-full">
                             {Object.values(StatType)
                                 .filter(stat => !DYNAMIC_STATS.includes(stat)) 
                                 .map(stat => {
@@ -535,6 +537,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                         className="group relative grid grid-cols-[1.5fr_1fr_1fr] gap-4 items-center bg-slate-800 p-2 border-2 border-slate-700 hover:border-blue-500 hover:bg-slate-700 transition-colors"
                                         onMouseEnter={() => setHoveredStat(stat)}
                                         onMouseLeave={() => setHoveredStat(null)}
+                                        onClick={() => { if(window.innerWidth < 1024) alert(`${stat}: ${STAT_DESCRIPTIONS[stat]}`); }}
                                     >
                                         <label className={`text-xs font-bold truncate pl-2 flex items-center gap-2 ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
                                             {getStatIcon(stat)}
@@ -568,8 +571,8 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         </div>
                     </div>
 
-                    {/* COL 2: SKILLS (60%) */}
-                    <div className="flex-1 flex flex-col pixel-border bg-slate-800 overflow-hidden min-w-[300px]">
+                    {/* COL 2: SKILLS */}
+                    <div className="flex-1 flex flex-col pixel-border bg-slate-800 overflow-hidden min-w-[300px] h-[600px] lg:h-auto">
                          <div className="flex justify-between items-center p-3 border-b-4 border-slate-700 bg-slate-900 z-10">
                             <h3 className="text-lg font-bold text-green-400 flex items-center gap-2 retro-font">
                                 <IconBolt size={20} /> 技能逻辑
@@ -612,9 +615,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
                 {/* --- VISUAL PANEL --- */}
                 {activeTab === 'VISUAL' && char.appearance && (
-                    <div className="w-full h-full flex gap-8 p-8 animate-in fade-in slide-in-from-right duration-300 items-start">
+                    <div className="w-full h-full flex flex-col lg:flex-row gap-8 p-4 lg:p-8 animate-in fade-in slide-in-from-right duration-300 items-start overflow-y-auto">
                         {/* Preview Box */}
-                        <div className="w-1/3 flex flex-col items-center gap-6">
+                        <div className="w-full lg:w-1/3 flex flex-col items-center gap-6">
                             <div className="text-xl font-bold text-white retro-font">形象卡片</div>
                             <div className="relative">
                                 {/* Using HeroAvatar as the static visual representation */}
@@ -631,7 +634,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         </div>
 
                         {/* Controls */}
-                        <div className="flex-1 pixel-border bg-slate-800 p-6">
+                        <div className="flex-1 w-full pixel-border bg-slate-800 p-6">
                             <h3 className="text-lg font-bold text-purple-400 mb-6 flex items-center gap-2 retro-font">
                                 <IconEdit size={20}/> 个性化定制
                             </h3>
@@ -656,7 +659,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="space-y-2">
                                         <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><IconSkull size={16}/> 头部外观</label>
                                         <select 

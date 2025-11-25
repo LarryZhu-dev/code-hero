@@ -91,6 +91,7 @@ class PixelEntity {
     weaponGraphics: PIXI.Graphics; // Weapon Graphics
     shadow: PIXI.Graphics;
     hpBar: PIXI.Container;
+    hpBarGraphics: PIXI.Graphics; // Optimization: Reuse graphics
     
     // Stats
     maxHp: number;
@@ -168,6 +169,8 @@ class PixelEntity {
         // HP Bar Group
         this.hpBar = new PIXI.Container();
         this.hpBar.y = -100; // Position above head
+        this.hpBarGraphics = new PIXI.Graphics(); // Init reusable graphics
+        this.hpBar.addChild(this.hpBarGraphics);
         this.container.addChild(this.hpBar);
         this.updateBars();
     }
@@ -193,7 +196,9 @@ class PixelEntity {
     updateBars() {
         const barWidth = 80;
         const barHeight = 8;
-        const g = new PIXI.Graphics();
+        const g = this.hpBarGraphics;
+        
+        g.clear();
         
         // --- HP BAR ---
         const visualMaxHp = Math.max(this.maxHp, this.currentHp);
@@ -223,9 +228,6 @@ class PixelEntity {
         const visualMaxMana = Math.max(this.maxMana, this.currentMana);
         const mpPct = visualMaxMana > 0 ? Math.max(0, this.currentMana / visualMaxMana) : 0;
         g.rect(-barWidth/2, 12, barWidth * mpPct, 4).fill(0x3b82f6);
-
-        this.hpBar.removeChildren();
-        this.hpBar.addChild(g);
     }
 
     animateIdle(time: number) {
@@ -343,6 +345,11 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                         app.canvas.parentElement.removeChild(app.canvas);
                     }
                     containerRef.current.appendChild(app.canvas);
+                    
+                    // Make canvas responsive
+                    app.canvas.style.width = '100%';
+                    app.canvas.style.height = '100%';
+                    app.canvas.style.display = 'block';
                 }
 
                 app.stage.removeChildren().forEach(c => c.destroy({ children: true }));
@@ -535,8 +542,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
 
                     if (opacity <= 0) {
                         if (basicText.parent) app.stage.removeChild(basicText);
-                        basicText.destroy();
-                    } else if (basicText.parent) {
+                        // FIX: Ensure texture is destroyed to prevent leaks
+                        basicText.destroy({ texture: true });
+                    } else if (basicText.parent && !basicText.destroyed) {
                         requestAnimationFrame(animateText);
                     }
                 };
@@ -544,6 +552,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
             };
 
             for (const evt of gameState.events) {
+                // FIX: Stop processing if app was destroyed/unmounted
+                if (!appRef.current || !visualsRef.current) break;
+
                 const source = evt.sourceId ? getEntity(evt.sourceId) : null;
                 const target = evt.targetId ? getEntity(evt.targetId) : null;
 
@@ -580,6 +591,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 }
 
                 await new Promise(r => setTimeout(r, pause));
+
+                // Re-check after await
+                if (!appRef.current || !visualsRef.current) break;
 
                 if (evt.type === 'ATTACK_MOVE' && source && target) {
                     const wType = source.appearance.weapon;
@@ -862,7 +876,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
     }, [gameState.phase, gameState.events, gameState.p1.id, gameState.p2.id, onAnimationsComplete]);
 
     return (
-        <div ref={containerRef} className="border-4 border-slate-700 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative" style={{ width: 800, height: 400 }}>
+        <div ref={containerRef} className="border-4 border-slate-700 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative mx-auto" style={{ width: '100%', maxWidth: '800px', aspectRatio: '2/1' }}>
         </div>
     );
 };

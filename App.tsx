@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
@@ -16,7 +15,7 @@ import {
     IconPlay, IconRefresh, IconSave, IconShield, IconSkull, IconStaff, IconSword,
     IconBrokenShield, IconVampire, IconDroplet, IconSpark, IconMuscle, IconBack
 } from './components/PixelIcons';
-import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X, TowerControl as Tower } from 'lucide-react';
+import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X, TowerControl as Tower, Menu } from 'lucide-react';
 
 type AppView = 'MENU' | 'HERO_MANAGE' | 'EDITOR' | 'BATTLE_SETUP' | 'PUBLIC_HALL' | 'LOBBY' | 'BATTLE' | 'TOWER_SELECT';
 type UserRole = 'HOST' | 'CHALLENGER' | 'SPECTATOR' | 'NONE';
@@ -121,6 +120,27 @@ const ChallengeCard: React.FC<{
     );
 };
 
+const StatList: React.FC<{ entity: BattleEntity }> = ({ entity }) => {
+    const displayStats = Object.values(StatType).filter(s => !DYNAMIC_STATS.includes(s));
+    return (
+        <div className="grid grid-cols-2 gap-2">
+            {displayStats.map(stat => {
+                const val = getTotalStat(entity, stat);
+                return (
+                    <div key={stat} className="bg-slate-800 p-2 border-2 border-slate-700 flex items-center justify-between group relative hover:border-slate-500 transition-colors cursor-help">
+                        <div className="flex items-center gap-2">
+                            {getStatIcon(stat)}
+                        </div>
+                        <span className="font-mono text-xs font-bold text-slate-300">
+                            {Number.isInteger(val) ? val : val.toFixed(1)}
+                        </span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 const App: React.FC = () => {
     const [view, setView] = useState<AppView>('MENU');
     const [myChar, setMyChar] = useState<CharacterConfig | null>(null);
@@ -130,6 +150,7 @@ const App: React.FC = () => {
     
     // Modal State
     const [showHeroSelect, setShowHeroSelect] = useState(false);
+    const [showMobileStats, setShowMobileStats] = useState(false);
 
     // Online State
     const [roomId, setRoomId] = useState('');
@@ -1109,8 +1130,6 @@ const App: React.FC = () => {
     };
 
     const StatPanel: React.FC<{ entity: BattleEntity, isRight?: boolean }> = ({ entity, isRight }) => {
-        const displayStats = Object.values(StatType).filter(s => !DYNAMIC_STATS.includes(s));
-        
         return (
             <div className={`absolute top-20 bottom-24 w-64 ${isRight ? 'right-4' : 'left-4'} bg-slate-900 border-4 border-slate-700 p-4 flex flex-col z-20 overflow-y-auto custom-scrollbar shadow-2xl`}>
                 <div className="flex items-center gap-3 mb-4 border-b-4 border-slate-700 pb-2">
@@ -1132,32 +1151,63 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-2">
-                    {displayStats.map(stat => {
-                        const val = getTotalStat(entity, stat);
-                        return (
-                            <div key={stat} className="bg-slate-800 p-2 border-2 border-slate-700 flex items-center justify-between group relative hover:border-slate-500 transition-colors cursor-help">
-                                <div className="flex items-center gap-2">
-                                    {getStatIcon(stat)}
-                                </div>
-                                <span className="font-mono text-xs font-bold text-slate-300">
-                                    {Number.isInteger(val) ? val : val.toFixed(1)}
-                                </span>
-                                
-                                <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-black text-white text-xs px-2 py-1 -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap pointer-events-none z-50 shadow-lg border-2 border-slate-500">
-                                    {stat}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                <StatList entity={entity} />
             </div>
         );
     };
 
+    const MobileStatModal: React.FC<{ p1: BattleEntity, p2: BattleEntity, onClose: () => void }> = ({ p1, p2, onClose }) => {
+        const [activeEntity, setActiveEntity] = useState<'P1' | 'P2'>('P1');
+        const current = activeEntity === 'P1' ? p1 : p2;
+
+        return (
+            <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
+                <div className="bg-slate-900 border-4 border-slate-600 w-full max-w-md max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="flex border-b-4 border-slate-700">
+                        <button 
+                            className={`flex-1 p-3 font-bold retro-font ${activeEntity === 'P1' ? 'bg-blue-900 text-blue-200' : 'bg-slate-800 text-slate-500'}`}
+                            onClick={() => setActiveEntity('P1')}
+                        >
+                            {p1.config.name}
+                        </button>
+                        <button 
+                            className={`flex-1 p-3 font-bold retro-font ${activeEntity === 'P2' ? 'bg-red-900 text-red-200' : 'bg-slate-800 text-slate-500'}`}
+                            onClick={() => setActiveEntity('P2')}
+                        >
+                            {p2.config.name}
+                        </button>
+                    </div>
+                    <div className="p-4 overflow-y-auto custom-scrollbar">
+                        <div className="flex items-center gap-4 mb-4">
+                            <div className="border-4 border-slate-700 bg-slate-800">
+                                <HeroAvatar appearance={current.config.appearance!} size={64} bgColor={current.config.avatarColor} />
+                            </div>
+                            <div className="flex-1">
+                                 <div className="text-xs text-slate-400 font-mono mb-1">HP</div>
+                                 <div className="h-2 w-full bg-slate-800 mb-2">
+                                     <div className="h-full bg-red-500" style={{width: `${Math.min(100, (current.currentHp / getTotalStat(current, StatType.HP)) * 100)}%`}}></div>
+                                 </div>
+                                 <div className="text-xs text-slate-400 font-mono mb-1">MP</div>
+                                 <div className="h-2 w-full bg-slate-800">
+                                     <div className="h-full bg-blue-500" style={{width: `${Math.min(100, (current.currentMana / getTotalStat(current, StatType.MANA)) * 100)}%`}}></div>
+                                 </div>
+                            </div>
+                        </div>
+                        <StatList entity={current} />
+                    </div>
+                    <div className="p-4 border-t-4 border-slate-700 bg-slate-800">
+                        <button className="w-full pixel-btn pixel-btn-secondary border-2" onClick={onClose}>
+                            关闭
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
-            <div className="h-12 border-b-4 border-slate-700 bg-slate-900 flex items-center px-6 justify-between select-none z-50">
+            <div className="h-12 border-b-4 border-slate-700 bg-slate-900 flex items-center px-4 md:px-6 justify-between select-none z-50 shrink-0">
                 <span className="retro-font text-blue-400 text-sm cursor-pointer" onClick={() => {
                     net.disconnect();
                     setView('MENU');
@@ -1168,7 +1218,7 @@ const App: React.FC = () => {
             <div className="flex-1 overflow-hidden relative">
                 {/* HERO SELECTION MODAL */}
                 {showHeroSelect && (
-                    <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in duration-200">
+                    <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-200">
                         <div className="w-full max-w-6xl h-full max-h-[90vh] bg-slate-900 border-4 border-slate-600 shadow-2xl overflow-hidden flex flex-col">
                             <CharacterList 
                                 onSelect={handleSelectHero}
@@ -1179,10 +1229,14 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
+                
+                {showMobileStats && battleState && (
+                    <MobileStatModal p1={battleState.p1} p2={battleState.p2} onClose={() => setShowMobileStats(false)} />
+                )}
 
                 {/* CHALLENGE NOTIFICATIONS (STACKED) */}
                 {incomingChallenges.length > 0 && (
-                    <div className="fixed top-20 right-8 z-[70] flex flex-col gap-4 max-h-[80vh] overflow-y-auto no-scrollbar pointer-events-none">
+                    <div className="fixed top-14 right-4 z-[70] flex flex-col gap-4 max-h-[80vh] overflow-y-auto no-scrollbar pointer-events-none">
                         {incomingChallenges.map((challenge) => (
                             <ChallengeCard 
                                 key={challenge.fromId}
@@ -1228,17 +1282,19 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'MENU' && (
-                    <div className="flex flex-col items-center justify-center h-full gap-12 animate-in fade-in zoom-in duration-500">
-                        <GameLogo />
+                    <div className="flex flex-col items-center justify-center h-full gap-8 md:gap-12 animate-in fade-in zoom-in duration-500 p-4">
+                        <div className="scale-75 md:scale-100"><GameLogo /></div>
                         
-                        <div className="flex gap-6 mt-12">
+                        <div className="flex flex-col md:flex-row gap-6 mt-4 md:mt-12 w-full max-w-md md:max-w-none items-center justify-center">
                             <button 
                                 onClick={() => setView('HERO_MANAGE')} 
-                                className="group relative w-64 h-40 bg-slate-800 pixel-border hover:border-blue-500 transition-all overflow-hidden flex flex-col items-center justify-center gap-4 hover:-translate-y-2"
+                                className="group relative w-full md:w-64 h-24 md:h-40 bg-slate-800 pixel-border hover:border-blue-500 transition-all overflow-hidden flex flex-row md:flex-col items-center justify-center gap-4 hover:-translate-y-2 px-6"
                             >
-                                <IconStaff size={48} className="text-blue-400 relative z-10" />
-                                <span className="text-xl font-bold retro-font relative z-10">英雄名册</span>
-                                <span className="text-xs text-slate-500 relative z-10 font-mono">Manage & Create</span>
+                                <IconStaff size={32} className="text-blue-400 relative z-10 md:w-12 md:h-12" />
+                                <div className="flex flex-col items-start md:items-center">
+                                    <span className="text-lg md:text-xl font-bold retro-font relative z-10">英雄名册</span>
+                                    <span className="text-xs text-slate-500 relative z-10 font-mono">Manage & Create</span>
+                                </div>
                             </button>
 
                             <button 
@@ -1246,11 +1302,13 @@ const App: React.FC = () => {
                                     if (myChar) setView('BATTLE_SETUP');
                                     else setView('HERO_MANAGE');
                                 }} 
-                                className="group relative w-64 h-40 bg-slate-800 pixel-border hover:border-red-500 transition-all overflow-hidden flex flex-col items-center justify-center gap-4 hover:-translate-y-2"
+                                className="group relative w-full md:w-64 h-24 md:h-40 bg-slate-800 pixel-border hover:border-red-500 transition-all overflow-hidden flex flex-row md:flex-col items-center justify-center gap-4 hover:-translate-y-2 px-6"
                             >
-                                <IconSword size={48} className="text-red-400 relative z-10" />
-                                <span className="text-xl font-bold retro-font relative z-10">开始战斗</span>
-                                <span className="text-xs text-slate-500 relative z-10 font-mono">Single / Multi</span>
+                                <IconSword size={32} className="text-red-400 relative z-10 md:w-12 md:h-12" />
+                                <div className="flex flex-col items-start md:items-center">
+                                    <span className="text-lg md:text-xl font-bold retro-font relative z-10">开始战斗</span>
+                                    <span className="text-xs text-slate-500 relative z-10 font-mono">Single / Multi</span>
+                                </div>
                             </button>
                         </div>
                     </div>
@@ -1274,72 +1332,74 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'BATTLE_SETUP' && myChar && (
-                     <div className="flex flex-col items-center justify-center h-full gap-8 animate-in fade-in slide-in-from-right duration-300 p-8">
-                        <h2 className="text-3xl font-bold retro-font drop-shadow-md text-white">战斗准备</h2>
+                     <div className="flex flex-col items-center h-full gap-4 md:gap-8 animate-in fade-in slide-in-from-right duration-300 p-4 md:p-8 overflow-y-auto">
+                        <h2 className="text-2xl md:text-3xl font-bold retro-font drop-shadow-md text-white mt-4">战斗准备</h2>
                         
                         {/* CURRENT HERO CARD */}
-                        <div className="flex items-center gap-6 bg-slate-800 p-6 border-4 border-slate-700 mb-4 shadow-xl relative">
-                             <div className="border-4 border-slate-900 bg-slate-950">
-                                <HeroAvatar appearance={myChar.appearance!} size={80} bgColor={myChar.avatarColor} />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <div className="text-xs text-slate-400 font-bold uppercase tracking-widest">出战英雄</div>
-                                <div className="font-bold text-2xl retro-font text-white">{myChar.name}</div>
-                                <div className="flex gap-2 text-xs text-slate-500 font-mono">
-                                    <span>{myChar.role}</span>
-                                    <span>•</span>
-                                    <span>{myChar.skills.length} Skills</span>
+                        <div className="flex items-center gap-4 md:gap-6 bg-slate-800 p-4 md:p-6 border-4 border-slate-700 mb-4 shadow-xl relative w-full max-w-md md:max-w-none mx-auto justify-between">
+                             <div className="flex items-center gap-4">
+                                <div className="border-4 border-slate-900 bg-slate-950 shrink-0">
+                                    <HeroAvatar appearance={myChar.appearance!} size={64} bgColor={myChar.avatarColor} className="md:w-20 md:h-20" />
                                 </div>
-                            </div>
+                                <div className="flex flex-col gap-1 min-w-0">
+                                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">出战英雄</div>
+                                    <div className="font-bold text-xl md:text-2xl retro-font text-white truncate">{myChar.name}</div>
+                                    <div className="flex gap-2 text-xs text-slate-500 font-mono">
+                                        <span>{myChar.role}</span>
+                                        <span>•</span>
+                                        <span>{myChar.skills.length} Skills</span>
+                                    </div>
+                                </div>
+                             </div>
                             <button 
                                 onClick={() => setShowHeroSelect(true)} 
-                                className="ml-8 px-4 py-2 bg-slate-700 border-2 border-slate-600 hover:bg-slate-600 hover:border-slate-500 transition-colors text-sm font-bold flex items-center gap-2"
+                                className="px-3 py-2 bg-slate-700 border-2 border-slate-600 hover:bg-slate-600 hover:border-slate-500 transition-colors text-xs md:text-sm font-bold flex items-center gap-2"
                             >
-                                <IconRefresh size={16}/> 更换
+                                <IconRefresh size={16}/> <span className="hidden md:inline">更换</span>
                             </button>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8 w-full max-w-5xl">
                             {/* LOCAL BOT */}
-                            <button onClick={startLocalBotBattle} className="group relative bg-slate-800 hover:bg-emerald-900/30 border-4 border-slate-700 hover:border-emerald-500 flex flex-col items-center gap-4 p-8 transition-all hover:-translate-y-1">
-                                <div className="p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-emerald-500 group-hover:text-emerald-400 text-slate-500 transition-colors">
-                                     <IconShield size={32} />
+                            <button onClick={startLocalBotBattle} className="group relative bg-slate-800 hover:bg-emerald-900/30 border-4 border-slate-700 hover:border-emerald-500 flex flex-row md:flex-col items-center gap-4 p-4 md:p-8 transition-all hover:-translate-y-1">
+                                <div className="p-3 md:p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-emerald-500 group-hover:text-emerald-400 text-slate-500 transition-colors">
+                                     <IconShield size={24} className="md:w-8 md:h-8" />
                                 </div>
-                                <div className="text-center">
+                                <div className="text-left md:text-center flex-1">
                                     <span className="font-bold text-lg retro-font block mb-1">人机训练</span>
                                     <span className="text-xs text-slate-500 font-mono">VS AI BOT</span>
                                 </div>
                             </button>
                             
                             {/* TOWER MODE */}
-                            <button onClick={() => setView('TOWER_SELECT')} className="group relative bg-slate-800 hover:bg-yellow-900/30 border-4 border-slate-700 hover:border-yellow-500 flex flex-col items-center gap-4 p-8 transition-all hover:-translate-y-1">
-                                <div className="p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-yellow-500 group-hover:text-yellow-400 text-slate-500 transition-colors">
-                                     <Tower size={32} />
+                            <button onClick={() => setView('TOWER_SELECT')} className="group relative bg-slate-800 hover:bg-yellow-900/30 border-4 border-slate-700 hover:border-yellow-500 flex flex-row md:flex-col items-center gap-4 p-4 md:p-8 transition-all hover:-translate-y-1">
+                                <div className="p-3 md:p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-yellow-500 group-hover:text-yellow-400 text-slate-500 transition-colors">
+                                     <Tower size={24} className="md:w-8 md:h-8" />
                                 </div>
-                                <div className="text-center">
+                                <div className="text-left md:text-center flex-1">
                                     <span className="font-bold text-lg retro-font block mb-1">爬塔模式</span>
                                     <span className="text-xs text-slate-500 font-mono">20 Levels PVE</span>
                                 </div>
                             </button>
 
                             {/* PUBLIC HALL */}
-                            <button onClick={enterPublicHall} className="group relative bg-slate-800 hover:bg-purple-900/30 border-4 border-slate-700 hover:border-purple-500 flex flex-col items-center gap-4 p-8 transition-all hover:-translate-y-1">
-                                <div className="p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-purple-500 group-hover:text-purple-400 text-slate-500 transition-colors">
-                                     <Users size={32} />
+                            <button onClick={enterPublicHall} className="group relative bg-slate-800 hover:bg-purple-900/30 border-4 border-slate-700 hover:border-purple-500 flex flex-row md:flex-col items-center gap-4 p-4 md:p-8 transition-all hover:-translate-y-1">
+                                <div className="p-3 md:p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-purple-500 group-hover:text-purple-400 text-slate-500 transition-colors">
+                                     <Users size={24} className="md:w-8 md:h-8" />
                                 </div>
-                                <div className="text-center">
+                                <div className="text-left md:text-center flex-1">
                                     <span className="font-bold text-lg retro-font block mb-1">对战大厅</span>
                                     <span className="text-xs text-slate-500 font-mono">Public Matchmaking</span>
                                 </div>
                             </button>
 
                             {/* PRIVATE ROOM */}
-                            <div className="bg-slate-800 border-4 border-slate-700 flex flex-col items-center gap-4 p-8 relative">
-                                <div className="p-4 bg-slate-900 rounded-full border-2 border-slate-700 text-blue-400">
+                            <div className="bg-slate-800 border-4 border-slate-700 flex flex-col md:items-center gap-4 p-4 md:p-8 relative">
+                                <div className="hidden md:block p-4 bg-slate-900 rounded-full border-2 border-slate-700 text-blue-400">
                                      <IconBolt size={32} />
                                 </div>
-                                <div className="text-center w-full">
-                                    <span className="font-bold text-lg retro-font block mb-4">私有房间</span>
+                                <div className="text-left md:text-center w-full">
+                                    <span className="font-bold text-lg retro-font block mb-2 md:mb-4">私有房间</span>
                                     <div className="flex gap-2 w-full">
                                         <input 
                                             className="pixel-input w-full text-center text-sm"
@@ -1358,20 +1418,20 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         
-                        <button onClick={() => setView('MENU')} className="mt-4 text-slate-500 hover:text-white pixel-btn pixel-btn-secondary border-2 flex items-center gap-2">
+                        <button onClick={() => setView('MENU')} className="mt-auto md:mt-4 text-slate-500 hover:text-white pixel-btn pixel-btn-secondary border-2 flex items-center gap-2 mb-8">
                              <IconBack size={16}/> 返回主菜单
                         </button>
                      </div>
                 )}
 
                 {view === 'TOWER_SELECT' && (
-                    <div className="flex flex-col items-center justify-center h-full p-8 bg-slate-950">
-                        <header className="mb-8 text-center">
-                            <h2 className="text-4xl font-bold retro-font text-yellow-400 mb-2 drop-shadow-md">爬塔挑战</h2>
+                    <div className="flex flex-col items-center h-full p-4 md:p-8 bg-slate-950 overflow-y-auto">
+                        <header className="mb-8 text-center mt-4">
+                            <h2 className="text-3xl md:text-4xl font-bold retro-font text-yellow-400 mb-2 drop-shadow-md">爬塔挑战</h2>
                             <p className="text-slate-500 font-mono text-sm">挑战层层强敌，突破极限 (Max: 20F)</p>
                         </header>
 
-                        <div className="grid grid-cols-5 gap-4 max-w-4xl w-full mb-8">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4 max-w-4xl w-full mb-8">
                             {TOWER_LEVELS.map((levelConfig, index) => {
                                 const level = index + 1;
                                 const isUnlocked = level <= towerProgress;
@@ -1384,14 +1444,14 @@ const App: React.FC = () => {
                                         onClick={() => isUnlocked && startTowerBattle(level)}
                                         disabled={!isUnlocked}
                                         className={`
-                                            relative h-24 border-4 flex flex-col items-center justify-center transition-all
+                                            relative h-20 md:h-24 border-4 flex flex-col items-center justify-center transition-all
                                             ${isUnlocked 
                                                 ? (isBoss ? 'bg-red-950/40 border-red-600 hover:bg-red-900/60 hover:-translate-y-1' : 'bg-slate-800 border-slate-600 hover:border-yellow-500 hover:bg-slate-700 hover:-translate-y-1') 
                                                 : 'bg-slate-900 border-slate-800 opacity-50 cursor-not-allowed grayscale'
                                             }
                                         `}
                                     >
-                                        <span className={`text-2xl font-bold retro-font ${isUnlocked ? 'text-white' : 'text-slate-700'}`}>
+                                        <span className={`text-xl md:text-2xl font-bold retro-font ${isUnlocked ? 'text-white' : 'text-slate-700'}`}>
                                             {level}F
                                         </span>
                                         {isCleared && (
@@ -1400,7 +1460,7 @@ const App: React.FC = () => {
                                             </div>
                                         )}
                                         {isBoss && (
-                                            <div className="absolute bottom-2 text-[10px] text-red-400 font-bold uppercase tracking-wider">BOSS</div>
+                                            <div className="absolute bottom-1 md:bottom-2 text-[8px] md:text-[10px] text-red-400 font-bold uppercase tracking-wider">BOSS</div>
                                         )}
                                         {!isUnlocked && (
                                             <div className="absolute inset-0 flex items-center justify-center bg-black/50">
@@ -1412,7 +1472,7 @@ const App: React.FC = () => {
                             })}
                         </div>
                         
-                        <div className="flex gap-4">
+                        <div className="flex gap-4 mb-8">
                              <button onClick={() => setView('BATTLE_SETUP')} className="pixel-btn pixel-btn-secondary border-2 flex items-center gap-2">
                                 <IconBack size={16}/> 返回
                             </button>
@@ -1421,25 +1481,25 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'PUBLIC_HALL' && (
-                    <div className="flex flex-col h-full bg-slate-950 p-8">
-                        <header className="flex justify-between items-center mb-6 pb-4 border-b-4 border-slate-800">
+                    <div className="flex flex-col h-full bg-slate-950 p-4 md:p-8">
+                        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 pb-4 border-b-4 border-slate-800 gap-4">
                              <div>
-                                <h2 className="text-3xl font-bold text-white retro-font flex items-center gap-3">
-                                    <Users size={32} className="text-purple-400"/> 对战大厅
+                                <h2 className="text-2xl md:text-3xl font-bold text-white retro-font flex items-center gap-3">
+                                    <Users size={24} className="md:w-8 md:h-8 text-purple-400"/> 对战大厅
                                 </h2>
                                 <p className="text-slate-500 text-xs font-mono mt-1">Global Public Hall • {hallPlayers.length + 1} Online</p>
                              </div>
                              
-                             <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 border-2 border-slate-700">
-                                    <span className="text-xs text-slate-400 uppercase font-bold">Current Hero</span>
-                                    <div className="font-bold text-white retro-font">{myChar?.name}</div>
-                                    <button onClick={() => setShowHeroSelect(true)} className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 px-2 py-1 text-slate-300">
+                             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                                <div className="flex flex-1 md:flex-none items-center gap-2 md:gap-3 bg-slate-900 px-3 py-2 border-2 border-slate-700">
+                                    <span className="text-[10px] md:text-xs text-slate-400 uppercase font-bold hidden sm:inline">Current Hero</span>
+                                    <div className="font-bold text-white retro-font text-sm">{myChar?.name}</div>
+                                    <button onClick={() => setShowHeroSelect(true)} className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 px-2 py-1 text-slate-300 ml-auto md:ml-0">
                                         Change
                                     </button>
                                 </div>
                                 <button onClick={() => { net.disconnect(); setView('BATTLE_SETUP'); }} className="pixel-btn pixel-btn-danger text-xs border-2 flex items-center gap-2">
-                                    <IconBack size={14}/> 离开大厅
+                                    <IconBack size={14}/> 离开
                                 </button>
                              </div>
                         </header>
@@ -1502,52 +1562,53 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'LOBBY' && myChar && (
-                    <div className="flex flex-col items-center justify-center h-full gap-8 p-12 relative">
-                        <div className="absolute top-12 flex flex-col items-center gap-2">
-                            <div className="text-slate-400 text-sm font-bold uppercase tracking-widest font-mono">
+                    <div className="flex flex-col items-center justify-start md:justify-center h-full gap-4 md:gap-8 p-4 md:p-12 relative overflow-y-auto">
+                        <div className="w-full md:absolute md:top-12 flex flex-col md:items-center gap-2 mb-4 md:mb-0">
+                            <div className="text-slate-400 text-xs md:text-sm font-bold uppercase tracking-widest font-mono text-center md:text-left">
                                 {battleOrigin === 'PUBLIC' ? 'Match Room' : 'Private Room ID'}
                             </div>
-                            <div className="flex items-center gap-4">
-                                <div className="text-4xl font-mono font-bold text-white bg-slate-800 px-6 py-2 border-4 border-slate-700 shadow-xl">
+                            <div className="flex items-center justify-center gap-4">
+                                <div className="text-2xl md:text-4xl font-mono font-bold text-white bg-slate-800 px-4 md:px-6 py-2 border-4 border-slate-700 shadow-xl">
                                     {battleOrigin === 'PUBLIC' ? '---' : roomId}
                                 </div>
                                 {battleOrigin === 'PRIVATE' && (
                                     <button 
                                         onClick={copyRoomId}
-                                        className="w-12 h-12 flex items-center justify-center bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-400 transition-all border-4 border-slate-700 active:border-b-2 active:border-r-2"
+                                        className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-400 transition-all border-4 border-slate-700 active:border-b-2 active:border-r-2"
                                         title="复制房间号"
                                     >
-                                        {copiedRoomId ? <Check size={24} /> : <Copy size={24} />}
+                                        {copiedRoomId ? <Check size={20} /> : <Copy size={20} />}
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        <div className="absolute top-8 right-8 flex items-center gap-2 text-slate-400">
+                        <div className="md:absolute md:top-8 md:right-8 flex items-center gap-2 text-slate-400 text-sm justify-center w-full md:w-auto mb-4 md:mb-0">
                             <Eye size={16}/> 观战: {spectators.length}
                         </div>
                         
-                        <h2 className="text-3xl font-bold retro-font text-white mb-8 mt-16 drop-shadow-md">
+                        <h2 className="text-2xl md:text-3xl font-bold retro-font text-white mb-4 md:mb-8 mt-4 md:mt-16 drop-shadow-md text-center">
                             {battleOrigin === 'PUBLIC' ? '比赛准备' : '房间大厅'}
                         </h2>
 
-                        <div className="flex gap-12 items-center">
+                        <div className="flex flex-col md:flex-row gap-8 md:gap-12 items-center w-full justify-center">
                             {/* Host Card */}
                             <div className="flex flex-col items-center gap-4">
-                                <div className={`relative w-48 h-64 bg-slate-800 border-4 flex flex-col items-center justify-center p-4 transition-all ${myRole === 'HOST' ? 'border-yellow-500' : 'border-slate-600'}`}>
+                                <div className={`relative w-40 h-56 md:w-48 md:h-64 bg-slate-800 border-4 flex flex-col items-center justify-center p-4 transition-all ${myRole === 'HOST' ? 'border-yellow-500' : 'border-slate-600'}`}>
                                     <div className="mb-4 border-2 border-slate-600">
                                         <HeroAvatar 
                                             appearance={(myRole === 'HOST' ? myChar : opponentChar)?.appearance!} 
-                                            size={80} 
+                                            size={64} 
                                             bgColor={(myRole === 'HOST' ? myChar : opponentChar)?.avatarColor || '#333'} 
+                                            className="md:w-20 md:h-20"
                                         />
                                     </div>
-                                    <h3 className="font-bold text-lg retro-font">{(myRole === 'HOST' ? myChar : opponentChar)?.name || '等待中...'}</h3>
+                                    <h3 className="font-bold text-base md:text-lg retro-font truncate max-w-full">{(myRole === 'HOST' ? myChar : opponentChar)?.name || '等待中...'}</h3>
                                     <span className="text-xs text-yellow-500 mb-4 font-bold uppercase">HOST</span>
                                     
                                     {myRole === 'HOST' && (
                                         <div className="mt-auto px-3 py-1 text-xs font-bold bg-yellow-900/50 text-yellow-400 border border-yellow-700 flex items-center gap-2">
-                                            <IconCheck size={12}/> 已就绪
+                                            <IconCheck size={12}/> <span className="hidden md:inline">已就绪</span>
                                         </div>
                                     )}
                                     {myRole === 'HOST' && (
@@ -1562,20 +1623,21 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="text-4xl font-black text-slate-700 italic retro-font">VS</div>
+                            <div className="text-4xl font-black text-slate-700 italic retro-font rotate-90 md:rotate-0">VS</div>
 
                             {/* Challenger Card */}
-                            <div className="flex flex-col items-center gap-4">
+                            <div className="flex flex-col items-center gap-4 w-40 md:w-48">
                                 {(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : (myRole === 'SPECTATOR' ? spectatorChallengerChar : null))) ? (
-                                    <div className={`relative w-48 h-64 bg-slate-800 border-4 flex flex-col items-center justify-center p-4 transition-all ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-slate-600'}`}>
+                                    <div className={`relative w-40 h-56 md:w-48 md:h-64 bg-slate-800 border-4 flex flex-col items-center justify-center p-4 transition-all ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-slate-600'}`}>
                                         <div className="mb-4 border-2 border-slate-600">
                                             <HeroAvatar 
                                                 appearance={(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.appearance!} 
-                                                size={80} 
+                                                size={64} 
                                                 bgColor={(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.avatarColor} 
+                                                className="md:w-20 md:h-20"
                                             />
                                         </div>
-                                        <h3 className="font-bold text-lg retro-font">{(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.name}</h3>
+                                        <h3 className="font-bold text-base md:text-lg retro-font truncate max-w-full">{(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.name}</h3>
                                         <span className="text-xs text-blue-400 mb-4 font-bold uppercase">CHALLENGER</span>
                                         
                                         <div className={`mt-auto flex items-center gap-2 px-3 py-1 text-xs font-bold border ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'bg-green-900/50 text-green-400 border-green-600' : 'bg-slate-900/50 text-slate-500 border-slate-700'}`}>
@@ -1595,7 +1657,7 @@ const App: React.FC = () => {
                                         )}
                                     </div>
                                 ) : (
-                                    <div className="w-48 h-64 bg-slate-900/50 border-4 border-dashed border-slate-700 flex flex-col items-center justify-center p-4 text-slate-600 gap-4 animate-pulse">
+                                    <div className="w-40 h-56 md:w-48 md:h-64 bg-slate-900/50 border-4 border-dashed border-slate-700 flex flex-col items-center justify-center p-4 text-slate-600 gap-4 animate-pulse">
                                         <Loader2 size={32} className="animate-spin" />
                                         <span className="text-sm font-mono">Waiting...</span>
                                     </div>
@@ -1606,9 +1668,9 @@ const App: React.FC = () => {
                                     <button 
                                         onClick={handleHostStartGame}
                                         disabled={!opponentChar || !opponentReady}
-                                        className={`pixel-btn w-full ${opponentChar && opponentReady ? 'pixel-btn-primary' : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'} flex items-center justify-center gap-2`}
+                                        className={`pixel-btn w-full ${opponentChar && opponentReady ? 'pixel-btn-primary' : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'} flex items-center justify-center gap-2 text-xs md:text-sm`}
                                     >
-                                        <IconPlay size={18} /> {battleOrigin === 'PUBLIC' ? '即将开始...' : '开始对战'}
+                                        <IconPlay size={16} /> {battleOrigin === 'PUBLIC' ? '即将开始...' : '开始对战'}
                                     </button>
                                 )}
 
@@ -1616,16 +1678,16 @@ const App: React.FC = () => {
                                     <button 
                                         onClick={handleToggleReady}
                                         disabled={battleOrigin === 'PUBLIC' && amIReady} // Public matches auto-lock
-                                        className={`pixel-btn w-full ${amIReady ? 'pixel-btn-secondary' : 'pixel-btn-success'} flex items-center justify-center gap-2`}
+                                        className={`pixel-btn w-full ${amIReady ? 'pixel-btn-secondary' : 'pixel-btn-success'} flex items-center justify-center gap-2 text-xs md:text-sm`}
                                     >
-                                        <IconCheck size={18} /> {amIReady ? (battleOrigin === 'PUBLIC' ? '等待房主...' : '取消准备') : '准备就绪'}
+                                        <IconCheck size={16} /> {amIReady ? (battleOrigin === 'PUBLIC' ? '等待房主...' : '取消准备') : '准备就绪'}
                                     </button>
                                 )}
                             </div>
                         </div>
 
                         {/* Log Window */}
-                        <div className="w-[500px] h-32 bg-slate-900 border-4 border-slate-800 p-4 overflow-y-auto custom-scrollbar font-mono text-xs text-slate-400">
+                        <div className="w-full md:w-[500px] h-32 bg-slate-900 border-4 border-slate-800 p-4 overflow-y-auto custom-scrollbar font-mono text-xs text-slate-400 mb-8 md:mb-0">
                             {lobbyLog.map((log, i) => (
                                 <div key={i} className="mb-1">{log}</div>
                             ))}
@@ -1637,7 +1699,7 @@ const App: React.FC = () => {
                                 if(battleOrigin === 'PUBLIC') enterPublicHall(); 
                                 else setView('BATTLE_SETUP'); 
                             }} 
-                            className="mt-4 text-sm text-red-400 hover:text-red-300 border border-red-900/50 px-4 py-2 hover:bg-red-900/20 pixel-btn pixel-btn-danger flex items-center justify-center gap-2"
+                            className="text-sm text-red-400 hover:text-red-300 border border-red-900/50 px-4 py-2 hover:bg-red-900/20 pixel-btn pixel-btn-danger flex items-center justify-center gap-2 mb-8 md:mb-0"
                         >
                             <IconBack size={14} /> 离开房间
                         </button>
@@ -1645,21 +1707,29 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'BATTLE' && battleState && (
-                    <div className="flex h-full">
-                    <div className="flex-1 relative bg-slate-900 flex flex-col items-center justify-center p-8 overflow-hidden">
-                        <div className="absolute top-4 text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10 flex flex-col items-center">
+                    <div className="flex flex-col md:flex-row h-full">
+                    <div className="flex-1 relative bg-slate-900 flex flex-col items-center justify-start md:justify-center p-2 md:p-8 overflow-hidden">
+                        <div className="absolute top-2 md:top-4 text-xl md:text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10 flex flex-col items-center pointer-events-none">
                             <span>回合 {battleState.turn}</span>
                             {battleState.mode === 'TOWER' && (
-                                <span className="text-sm text-slate-400 font-mono mt-1">
+                                <span className="text-xs md:text-sm text-slate-400 font-mono mt-1">
                                     TOWER LEVEL {battleState.towerLevel}
                                 </span>
                             )}
                         </div>
 
+                        {/* Mobile Stat Toggle */}
+                        <button 
+                            className="md:hidden absolute top-4 left-4 z-40 bg-slate-800 border-2 border-slate-600 p-2 text-white shadow-lg"
+                            onClick={() => setShowMobileStats(true)}
+                        >
+                            <Menu size={24} />
+                        </button>
+
                         {/* Timer */}
-                         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
-                            <div className="text-xs text-slate-500 uppercase tracking-widest mb-1 shadow-black/50 text-shadow font-mono">TIME</div>
-                            <div className={`text-2xl font-mono font-bold px-4 py-1 border-4 shadow-lg ${battleState.timeLeft < 10 ? 'text-red-500 border-red-900 bg-red-950/80' : 'text-white border-slate-700 bg-slate-800/80'}`}>
+                         <div className="absolute top-12 md:top-16 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
+                            <div className="text-[10px] md:text-xs text-slate-500 uppercase tracking-widest mb-1 shadow-black/50 text-shadow font-mono">TIME</div>
+                            <div className={`text-xl md:text-2xl font-mono font-bold px-4 py-1 border-4 shadow-lg ${battleState.timeLeft < 10 ? 'text-red-500 border-red-900 bg-red-950/80' : 'text-white border-slate-700 bg-slate-800/80'}`}>
                                 {battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId ? battleState.timeLeft : '--'}
                             </div>
                         </div>
@@ -1668,49 +1738,54 @@ const App: React.FC = () => {
                             <div className="absolute top-4 right-4 z-20">
                                 <button 
                                     onClick={handleSurrender}
-                                    className="pixel-btn pixel-btn-danger text-xs flex items-center justify-center gap-2"
+                                    className="pixel-btn pixel-btn-danger text-xs flex items-center justify-center gap-2 px-2 py-1"
                                 >
-                                    <Flag size={14} /> 认输
+                                    <Flag size={14} /> <span className="hidden md:inline">认输</span>
                                 </button>
                             </div>
                         )}
                         
                         {/* Winner/Loser Display */}
                         {battleState.winnerId && (
-                            <div className="absolute top-32 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                            <div className="absolute top-24 md:top-32 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center animate-in fade-in zoom-in duration-300 w-full px-4 text-center">
                                 {myRole === 'SPECTATOR' ? (
-                                    <div className="text-4xl font-bold retro-font text-yellow-400 drop-shadow-[4px_4px_0_rgba(0,0,0,0.8)]">GAME OVER</div>
+                                    <div className="text-3xl md:text-4xl font-bold retro-font text-yellow-400 drop-shadow-[4px_4px_0_rgba(0,0,0,0.8)]">GAME OVER</div>
                                 ) : (
-                                    <div className={`text-6xl font-black retro-font drop-shadow-[6px_6px_0_rgba(0,0,0,0.8)] ${battleState.winnerId === playerId ? 'text-yellow-400' : 'text-red-600'}`}>
+                                    <div className={`text-5xl md:text-6xl font-black retro-font drop-shadow-[6px_6px_0_rgba(0,0,0,0.8)] ${battleState.winnerId === playerId ? 'text-yellow-400' : 'text-red-600'}`}>
                                         {battleState.winnerId === playerId ? 'VICTORY' : 'DEFEAT'}
                                     </div>
                                 )}
-                                <div className="mt-2 text-xl font-bold text-white drop-shadow-md retro-font">
+                                <div className="mt-2 text-lg md:text-xl font-bold text-white drop-shadow-md retro-font">
                                     {(battleState.winnerId === battleState.p1.id ? battleState.p1.config.name : battleState.p2.config.name)} 获胜!
                                 </div>
                             </div>
                         )}
 
-                        <BattleScene 
-                            gameState={battleState} 
-                            onAnimationsComplete={handleAnimationComplete}
-                            onEntityClick={handleEntityClick}
-                        />
+                        <div className="w-full max-w-[800px] aspect-[2/1] mx-auto z-0 mt-8 md:mt-0">
+                            <BattleScene 
+                                gameState={battleState} 
+                                onAnimationsComplete={handleAnimationComplete}
+                                onEntityClick={handleEntityClick}
+                            />
+                        </div>
                         
-                        <StatPanel entity={battleState.p1} isRight={false} />
-                        <StatPanel entity={battleState.p2} isRight={true} />
+                        {/* Desktop Stats */}
+                        <div className="hidden md:block">
+                            <StatPanel entity={battleState.p1} isRight={false} />
+                            <StatPanel entity={battleState.p2} isRight={true} />
+                        </div>
 
-                        <div className={`absolute bottom-0 w-full h-2 transition-all duration-500 bg-gradient-to-r from-yellow-500/0 via-yellow-500 to-yellow-500/0 ${battleState.activePlayerId === battleState.p1.id ? 'translate-x-[-25%]' : 'translate-x-[25%]'}`}></div>
+                        <div className={`absolute bottom-0 w-full h-1 md:h-2 transition-all duration-500 bg-gradient-to-r from-yellow-500/0 via-yellow-500 to-yellow-500/0 ${battleState.activePlayerId === battleState.p1.id ? 'translate-x-[-25%]' : 'translate-x-[25%]'}`}></div>
 
                         {/* Controls */}
-                        <div className={`absolute bottom-4 w-full max-w-4xl left-1/2 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-8 duration-500 transition-all`}>
+                        <div className={`absolute bottom-4 w-full max-w-4xl left-1/2 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-8 duration-500 transition-all z-40`}>
                         {(() => {
                             const isMyTurn = battleState.activePlayerId === playerId;
                             const isSpectating = myRole === 'SPECTATOR';
                             
                             if (battleState.winnerId || battleState.phase === 'FINISHED') {
                                 return (
-                                    <div className="bg-slate-900/90 border-4 border-slate-700 p-6 flex items-center justify-center gap-8 shadow-2xl backdrop-blur max-w-lg mx-auto">
+                                    <div className="bg-slate-900/90 border-4 border-slate-700 p-4 md:p-6 flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 shadow-2xl backdrop-blur max-w-lg mx-auto w-[90%] md:w-auto">
                                         <button 
                                             onClick={() => { 
                                                 net.disconnect(); 
@@ -1719,7 +1794,7 @@ const App: React.FC = () => {
                                                 else if(battleOrigin === 'PUBLIC') enterPublicHall(); 
                                                 else if (battleOrigin === 'PRIVATE') joinPrivateRoom();
                                             }} 
-                                            className="pixel-btn pixel-btn-secondary flex items-center justify-center gap-2"
+                                            className="pixel-btn pixel-btn-secondary flex items-center justify-center gap-2 w-full md:w-auto"
                                         >
                                             <IconBack size={20} /> {battleState.mode === 'LOCAL_BOT' || battleState.mode === 'TOWER' ? '返回' : (battleOrigin === 'PUBLIC' ? '返回大厅' : '返回房间')}
                                         </button>
@@ -1728,7 +1803,7 @@ const App: React.FC = () => {
                                             <button 
                                                 onClick={handleRematchClick}
                                                 disabled={myRematchRequest || opponentLeft}
-                                                className={`pixel-btn flex items-center justify-center gap-2 ${
+                                                className={`pixel-btn flex items-center justify-center gap-2 w-full md:w-auto ${
                                                     opponentLeft 
                                                         ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
                                                         : myRematchRequest 
@@ -1759,7 +1834,7 @@ const App: React.FC = () => {
                                         {battleState.mode === 'TOWER' && battleState.winnerId === playerId && battleState.towerLevel && battleState.towerLevel < 20 && (
                                              <button 
                                                 onClick={() => startTowerBattle(battleState.towerLevel! + 1)}
-                                                className="pixel-btn pixel-btn-success flex items-center justify-center gap-2"
+                                                className="pixel-btn pixel-btn-success flex items-center justify-center gap-2 w-full md:w-auto"
                                             >
                                                 <Tower size={20} /> 下一层
                                             </button>
@@ -1772,12 +1847,12 @@ const App: React.FC = () => {
                                 return (
                                     <>
                                         {!isMyTurn && (
-                                            <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-30 bg-slate-900/80 px-4 py-2 border-2 border-slate-700 text-yellow-400 font-bold flex items-center gap-2 whitespace-nowrap">
-                                                <Lock size={16}/> 对手回合 - 技能仅供查看
+                                            <div className="absolute -top-10 md:-top-14 left-1/2 -translate-x-1/2 z-30 bg-slate-900/80 px-2 py-1 md:px-4 md:py-2 border-2 border-slate-700 text-yellow-400 font-bold flex items-center gap-2 whitespace-nowrap text-xs md:text-sm">
+                                                <Lock size={12} className="md:w-4 md:h-4"/> 对手回合 - 技能仅供查看
                                             </div>
                                         )}
 
-                                        <div className="flex justify-center items-center gap-4">
+                                        <div className="flex justify-center items-center gap-2 md:gap-4 overflow-x-auto pb-4 md:pb-0 px-4 w-full md:w-auto">
                                             {(() => {
                                                 const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                 const sortedSkills = getSortedSkills(myEntity);
@@ -1799,28 +1874,28 @@ const App: React.FC = () => {
                                                                 }
                                                             }}
                                                             className={`
-                                                                relative w-24 h-24 border-4 flex flex-col items-center justify-between p-2 transition-all duration-200 cursor-pointer bg-slate-900
+                                                                relative w-16 h-16 md:w-24 md:h-24 border-4 flex flex-col items-center justify-between p-1 md:p-2 transition-all duration-200 cursor-pointer bg-slate-900 shrink-0
                                                                 ${isSelected ? 'scale-110 z-10 shadow-[0_0_20px_rgba(59,130,246,0.4)]' : 'scale-95 opacity-60'}
                                                                 ${isSelected ? (isPassive ? 'border-indigo-400' : canAfford ? 'border-blue-400' : 'border-red-500') : 'border-slate-700'}
                                                             `}
                                                         >
                                                             {isPassive && (
-                                                                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[10px] px-2 py-0.5 border border-indigo-500 whitespace-nowrap z-20 shadow-sm font-bold">
+                                                                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[8px] md:text-[10px] px-1 md:px-2 py-0.5 border border-indigo-500 whitespace-nowrap z-20 shadow-sm font-bold">
                                                                     PASSIVE
                                                                 </div>
                                                             )}
                                                             
                                                             {!isAttack && (
-                                                                <div className={`absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 border-2 ${canAfford ? 'bg-blue-900 border-blue-500 text-blue-200' : 'bg-red-900 border-red-500 text-white'}`}>
-                                                                    {cost} MP
+                                                                <div className={`absolute -top-2 -right-2 text-[8px] md:text-[10px] font-bold px-1 md:px-2 py-0.5 border-2 ${canAfford ? 'bg-blue-900 border-blue-500 text-blue-200' : 'bg-red-900 border-red-500 text-white'}`}>
+                                                                    {cost}
                                                                 </div>
                                                             )}
 
                                                             <div className={`flex-1 flex items-center justify-center ${isPassive ? 'text-indigo-400' : canAfford ? (isAttack ? 'text-yellow-400' : 'text-purple-400') : 'text-red-500'}`}>
-                                                                {isPassive ? <IconShield size={32} /> : isAttack ? <IconSword size={32} /> : <IconBolt size={32} />}
+                                                                {isPassive ? <IconShield size={20} className="md:w-8 md:h-8" /> : isAttack ? <IconSword size={20} className="md:w-8 md:h-8" /> : <IconBolt size={20} className="md:w-8 md:h-8" />}
                                                             </div>
 
-                                                            <div className="w-full text-center text-[10px] font-bold truncate text-slate-300 retro-font">
+                                                            <div className="w-full text-center text-[8px] md:text-[10px] font-bold truncate text-slate-300 retro-font">
                                                                 {skill.name}
                                                             </div>
 
@@ -1833,8 +1908,8 @@ const App: React.FC = () => {
                                             })()}
                                         </div>
 
-                                        <div className="absolute bottom-[calc(100%+1.5rem)] left-1/2 -translate-x-1/2 bg-slate-900/90 border-4 border-slate-700 p-6 flex flex-col items-center text-center shadow-2xl max-w-2xl w-full min-h-[120px] z-20 backdrop-blur">
-                                            <div className="mt-2 w-full">
+                                        <div className="absolute bottom-[calc(100%+1rem)] md:bottom-[calc(100%+1.5rem)] left-1/2 -translate-x-1/2 bg-slate-900/90 border-4 border-slate-700 p-4 md:p-6 flex flex-col items-center text-center shadow-2xl max-w-2xl w-[95%] md:w-full min-h-[100px] md:min-h-[120px] z-20 backdrop-blur rounded-lg md:rounded-none">
+                                            <div className="mt-0 md:mt-2 w-full">
                                                 {(() => {
                                                     const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                     const sortedSkills = getSortedSkills(myEntity);
@@ -1842,8 +1917,8 @@ const App: React.FC = () => {
                                                     
                                                     return (
                                                         <>
-                                                            <h4 className="text-xl font-bold text-white mb-2 retro-font">{selectedSkill.name}</h4>
-                                                            <div className="text-slate-400 font-mono text-sm leading-relaxed max-w-lg mx-auto whitespace-pre-wrap">
+                                                            <h4 className="text-lg md:text-xl font-bold text-white mb-1 md:mb-2 retro-font">{selectedSkill.name}</h4>
+                                                            <div className="text-slate-400 font-mono text-xs md:text-sm leading-relaxed max-w-lg mx-auto whitespace-pre-wrap">
                                                                 {getSkillDescription(selectedSkill, myEntity)}
                                                             </div>
                                                         </>
@@ -1859,14 +1934,14 @@ const App: React.FC = () => {
                         
                         {(battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId && battleState.phase !== 'EXECUTING') 
                             && !battleState.winnerId && (
-                             <div className="absolute bottom-32 left-1/2 -translate-x-1/2 text-slate-500 font-mono animate-pulse flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1">
+                             <div className="absolute bottom-32 left-1/2 -translate-x-1/2 text-slate-500 font-mono animate-pulse flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1 text-xs md:text-sm">
                                 <div className="w-2 h-2 bg-slate-500"></div>
                                 {myRole === 'SPECTATOR' ? 'THINKING...' : 'WAITING FOR OPPONENT...'}
                              </div>
                         )}
                     </div>
 
-                    <div className="w-80 bg-slate-950 border-l-4 border-slate-800 p-0 flex flex-col shadow-xl z-20">
+                    <div className="hidden md:flex w-80 bg-slate-950 border-l-4 border-slate-800 p-0 flex-col shadow-xl z-20">
                         <div className="p-4 border-b-4 border-slate-800 bg-slate-900">
                             <h3 className="text-slate-400 font-bold text-xs uppercase tracking-widest flex items-center gap-2">
                                 <div className="w-2 h-2 bg-green-500 animate-pulse"></div>
