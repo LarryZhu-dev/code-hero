@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, EffectVisual, VisualShape, AppearanceConfig, HeadType, BodyType, WeaponType, AnimationType } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword } from 'lucide-react';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword, LayoutTemplate } from 'lucide-react';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
 import { classifyHero, getDefaultAppearance, getRoleDisplayName, drawBody, drawWeapon } from '../utils/heroSystem';
 import { createProjectile, createAuraEffect, createParticles } from '../utils/visualEffects';
@@ -35,7 +35,7 @@ const styles = {
     input: "bg-slate-950/50 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-center text-yellow-200 w-20 focus:border-yellow-500 outline-none transition-colors",
 };
 
-const HeroPreview: React.FC<{ appearance: AppearanceConfig }> = ({ appearance }) => {
+const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> = ({ appearance, bgColor }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<PIXI.Application | null>(null);
     const appearanceRef = useRef(appearance);
@@ -52,7 +52,12 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig }> = ({ appearance })
             if (!containerRef.current || appRef.current) return;
 
             const app = new PIXI.Application();
-            await app.init({ width: 250, height: 250, backgroundColor: 0x0f172a, antialias: false });
+            await app.init({ 
+                width: 250, 
+                height: 250, 
+                backgroundColor: bgColor ? parseInt(bgColor.replace('#', '0x')) : 0x0f172a, 
+                antialias: false 
+            });
             
             if (isCancelled) {
                 app.destroy();
@@ -60,6 +65,10 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig }> = ({ appearance })
             }
 
             if (containerRef.current) {
+                // Clear previous canvas if any
+                while(containerRef.current.firstChild) {
+                    containerRef.current.removeChild(containerRef.current.firstChild);
+                }
                 containerRef.current.appendChild(app.canvas);
             }
             appRef.current = app;
@@ -134,24 +143,16 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig }> = ({ appearance })
                 appRef.current = null;
             }
         };
-    }, []);
+    }, [bgColor]); // Re-init if BG color changes fundamentally
 
-    return <div ref={containerRef} className="w-[250px] h-[250px] rounded border border-slate-700 bg-slate-950 shadow-inner flex items-center justify-center"></div>;
-};
-
-const VisualPreview: React.FC<{ type: EffectType, visual: EffectVisual }> = ({ type, visual }) => {
-    // ... existing visual preview code ... (No changes needed for simple orb/particle preview, complex anims are in BattleScene)
-    // To save space, keeping the existing simplified preview
-    return <div className="w-[200px] h-[100px] bg-slate-950 flex items-center justify-center text-xs text-slate-500 border border-slate-800 rounded">
-        特效预览 (仅战斗中完整显示)
-    </div>
+    return <div ref={containerRef} className="w-[250px] h-[250px] rounded border border-slate-700 shadow-inner flex items-center justify-center overflow-hidden"></div>;
 };
 
 const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     const [char, setChar] = useState<CharacterConfig>(existing || {
         id: generateId(),
         name: '新角色',
-        avatarColor: '#3b82f6',
+        avatarColor: '#1e293b', // Default dark background
         stats: JSON.parse(JSON.stringify(INITIAL_STATS)),
         skills: []
     });
@@ -162,18 +163,18 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     // Auto-update Role and Appearance defaults on Mount/Stat Change
     useEffect(() => {
         const role = classifyHero(char);
-        const currentApp = char.appearance || getDefaultAppearance(role, char.avatarColor);
         
         // Only update if changed to avoid loop (though role calc is pure)
         if (char.role !== role) {
             setChar(prev => ({ ...prev, role }));
         }
         
-        // If appearance is missing, set default
+        // If appearance is missing, set default. Use a safe default color if avatarColor is missing.
         if (!char.appearance) {
-             setChar(prev => ({ ...prev, appearance: currentApp }));
+             const defaultApp = getDefaultAppearance(role, '#3b82f6'); 
+             setChar(prev => ({ ...prev, appearance: defaultApp }));
         }
-    }, [char.stats, char.avatarColor]);
+    }, [char.stats]);
 
     const usedBase = (Object.values(char.stats.base) as number[]).reduce((a, b) => a + b, 0);
     const usedPerc = (Object.values(char.stats.percent) as number[]).reduce((a, b) => a + b, 0);
@@ -236,14 +237,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     };
 
     const handleSave = () => {
-        const finalChar = {
-            ...char,
-            appearance: {
-                ...char.appearance!,
-                themeColor: char.avatarColor
-            }
-        };
-        onSave(finalChar);
+        // Ensure appearance exists
+        if (!char.appearance) return;
+        onSave(char);
     };
 
     const exportConfig = () => {
@@ -273,7 +269,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                     <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-700">
                         <ArrowLeft size={20} />
                     </button>
-                    {/* Replaced simple block with just color input nearby, removed old avatar box */}
                     <input 
                         value={char.name} 
                         onChange={e => setChar({...char, name: e.target.value})}
@@ -315,36 +310,31 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
             <div className="flex-1 flex overflow-hidden">
                 
-                {/* --- CORE PANEL (Stats & Skills) --- */}
+                {/* --- CORE PANEL (Stats & Skills & Preview) --- */}
                 {activeTab === 'CORE' && (
                 <div className="w-full h-full flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     
-                    {/* STATS COLUMN */}
-                    <div className="w-5/12 flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl">
-                        <div className="bg-slate-800/80 p-5 border-b border-slate-700 shadow-md z-10">
-                             <div className="grid grid-cols-2 gap-3 mb-3">
-                                <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-700 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 p-1 opacity-10"><Cpu size={40}/></div>
-                                    <div className="text-xs text-slate-400 mb-1 font-bold uppercase tracking-wider">基础点数</div>
-                                    <div className={`text-xl font-mono font-bold ${usedBase > MAX_BASE_POINTS ? 'text-red-500' : 'text-white'}`}>
-                                        {usedBase}<span className="text-xs text-slate-600">/{MAX_BASE_POINTS}</span>
+                    {/* COL 1: STATS (20%) */}
+                    <div className="w-[20%] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl min-w-[200px]">
+                        <div className="bg-slate-800/80 p-3 border-b border-slate-700 shadow-md z-10">
+                            <h3 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2"><Cpu size={14}/> 基础属性</h3>
+                            <div className="grid grid-cols-1 gap-2">
+                                <div className="bg-slate-900/80 p-2 rounded border border-slate-700 flex justify-between items-center">
+                                    <span className="text-[10px] text-slate-400 uppercase">Points</span>
+                                    <div className={`text-sm font-mono font-bold ${usedBase > MAX_BASE_POINTS ? 'text-red-500' : 'text-white'}`}>
+                                        {usedBase}<span className="text-[10px] text-slate-600">/{MAX_BASE_POINTS}</span>
                                     </div>
                                 </div>
-                                <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-700 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 p-1 opacity-10"><Zap size={40}/></div>
-                                    <div className="text-xs text-slate-400 mb-1 font-bold uppercase tracking-wider">百分比点数</div>
-                                    <div className={`text-xl font-mono font-bold ${usedPerc > MAX_PERCENT_POINTS ? 'text-red-500' : 'text-purple-400'}`}>
-                                        {usedPerc}<span className="text-xs text-slate-600">/{MAX_PERCENT_POINTS}%</span>
+                                <div className="bg-slate-900/80 p-2 rounded border border-slate-700 flex justify-between items-center">
+                                    <span className="text-[10px] text-slate-400 uppercase">Percent</span>
+                                    <div className={`text-sm font-mono font-bold ${usedPerc > MAX_PERCENT_POINTS ? 'text-red-500' : 'text-purple-400'}`}>
+                                        {usedPerc}<span className="text-[10px] text-slate-600">/{MAX_PERCENT_POINTS}%</span>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="bg-slate-900 p-2 rounded border border-slate-700 text-center">
-                                <span className="text-xs text-slate-500 uppercase mr-2">定位</span>
-                                <span className="text-sm font-bold text-yellow-400 retro-font">{getRoleDisplayName(char.role || 'UNKNOWN')}</span>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 gap-2 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-2 grid grid-cols-1 gap-1 custom-scrollbar">
                             {Object.values(StatType)
                                 .filter(stat => !DYNAMIC_STATS.includes(stat)) 
                                 .map(stat => {
@@ -352,54 +342,32 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                 const isBaseOnly = ONLY_BASE_STATS.includes(stat);
                                 
                                 return (
-                                    <div key={stat} className="bg-slate-900/40 p-2 rounded border border-slate-700/30 hover:border-slate-500/50 transition-all flex items-center gap-2">
-                                        <div className="w-24 text-right">
-                                            <label className={`text-xs font-bold transition-colors ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
-                                                {stat}
-                                            </label>
-                                        </div>
-                                        <div className="flex gap-2 flex-1">
-                                            {/* Base Input */}
-                                            <div className="flex-1 relative">
-                                                {!isPercentOnly ? (
-                                                    <>
-                                                        <input 
-                                                            type="number" 
-                                                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-right outline-none font-mono text-xs text-yellow-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all"
-                                                            value={char.stats.base[stat]}
-                                                            onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
-                                                            onFocus={(e) => e.target.select()}
-                                                            min={0}
-                                                        />
-                                                        <span className="absolute left-1 top-1 text-[10px] text-slate-600 select-none pointer-events-none">B</span>
-                                                    </>
-                                                ) : (
-                                                    <div className="h-full flex items-center justify-center opacity-30 bg-slate-950/50 rounded border border-transparent">
-                                                         <span className="text-[10px] text-slate-500">-</span>
-                                                    </div>
-                                                )}
-                                            </div>
+                                    <div key={stat} className="bg-slate-900/40 p-1.5 rounded border border-slate-700/30 hover:border-slate-500/50 flex flex-col gap-1">
+                                        <label className={`text-[10px] font-bold truncate ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-400'}`}>
+                                            {stat}
+                                        </label>
+                                        <div className="flex gap-1">
+                                            {!isPercentOnly ? (
+                                                <input 
+                                                    type="number" 
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-right outline-none font-mono text-[10px] text-yellow-100 focus:border-blue-500"
+                                                    value={char.stats.base[stat]}
+                                                    onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
+                                                    onFocus={(e) => e.target.select()}
+                                                    min={0}
+                                                />
+                                            ) : <div className="flex-1"></div>}
                                             
-                                            {/* Percent Input */}
-                                            <div className="flex-1 relative">
-                                                {!isBaseOnly ? (
-                                                    <>
-                                                        <input 
-                                                            type="number" 
-                                                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-right outline-none font-mono text-xs text-purple-300 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 transition-all"
-                                                            value={char.stats.percent[stat]}
-                                                            onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
-                                                            onFocus={(e) => e.target.select()}
-                                                            min={0}
-                                                        />
-                                                        <span className="absolute left-1 top-1 text-[10px] text-slate-600 select-none pointer-events-none">%</span>
-                                                    </>
-                                                ) : (
-                                                    <div className="h-full flex items-center justify-center opacity-30 bg-slate-950/50 rounded border border-transparent">
-                                                         <span className="text-[10px] text-slate-500">-</span>
-                                                    </div>
-                                                )}
-                                            </div>
+                                            {!isBaseOnly ? (
+                                                <input 
+                                                    type="number" 
+                                                    className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-right outline-none font-mono text-[10px] text-purple-300 focus:border-purple-500"
+                                                    value={char.stats.percent[stat]}
+                                                    onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
+                                                    onFocus={(e) => e.target.select()}
+                                                    min={0}
+                                                />
+                                            ) : <div className="flex-1"></div>}
                                         </div>
                                     </div>
                                 );
@@ -407,26 +375,19 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         </div>
                     </div>
 
-                    {/* SKILLS COLUMN */}
-                    <div className="w-7/12 flex flex-col bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden">
-                         <div className="flex justify-between items-center p-5 border-b border-slate-700 bg-slate-900/50 backdrop-blur z-10">
-                            <h3 className="text-xl font-bold text-green-400 flex items-center gap-2 retro-font">
-                                <Cpu size={24} /> 技能逻辑
+                    {/* COL 2: SKILLS (55%) */}
+                    <div className="flex-1 flex flex-col bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden min-w-[300px]">
+                         <div className="flex justify-between items-center p-3 border-b border-slate-700 bg-slate-900/50 backdrop-blur z-10">
+                            <h3 className="text-lg font-bold text-green-400 flex items-center gap-2 retro-font">
+                                <Cpu size={20} /> 技能逻辑
                             </h3>
-                            <div className="flex items-center gap-3">
-                                 <div className="flex gap-1">
-                                    {Array.from({length: 3}).map((_, i) => (
-                                        <div key={i} className={`w-2 h-2 rounded-full ${i < char.skills.length ? 'bg-green-500' : 'bg-slate-700'}`}></div>
-                                    ))}
-                                </div>
-                                <button 
-                                    onClick={addSkill} 
-                                    disabled={char.skills.length >= 3}
-                                    className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg font-bold transition-all shadow-lg ${char.skills.length >= 3 ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white hover:shadow-green-900/30'}`}
-                                >
-                                    <Plus size={14} /> 新建
-                                </button>
-                            </div>
+                            <button 
+                                onClick={addSkill} 
+                                disabled={char.skills.length >= 3}
+                                className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg font-bold transition-all shadow-lg ${char.skills.length >= 3 ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white hover:shadow-green-900/30'}`}
+                            >
+                                <Plus size={14} /> 新建
+                            </button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
@@ -451,6 +412,60 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             )}
                         </div>
                     </div>
+
+                    {/* COL 3: PREVIEW (25%) */}
+                    <div className="w-[25%] flex flex-col gap-4 min-w-[220px]">
+                        <div className="bg-slate-800/80 rounded-xl border border-slate-700 p-4 flex flex-col items-center shadow-xl">
+                            <div className="text-xs text-slate-500 font-bold mb-2 uppercase tracking-widest">实时预览</div>
+                            <div className="rounded-lg overflow-hidden border-2 border-slate-600 shadow-2xl bg-slate-950">
+                                {char.appearance && <HeroPreview appearance={char.appearance} bgColor={char.avatarColor} />}
+                            </div>
+                            <div className="mt-4 w-full space-y-3">
+                                <div className="bg-slate-900 p-2 rounded border border-slate-700 text-center">
+                                    <span className="text-[10px] text-slate-500 uppercase block mb-1">定位 Class</span>
+                                    <span className="text-sm font-bold text-yellow-400 retro-font">{getRoleDisplayName(char.role || 'UNKNOWN')}</span>
+                                </div>
+                                
+                                {/* Quick Color Adjustment */}
+                                <div className="space-y-3 bg-slate-900/50 p-2 rounded border border-slate-800">
+                                     <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-400">装备配色</span>
+                                        <div className="flex items-center gap-2">
+                                            <input 
+                                                type="color" 
+                                                value={char.appearance?.themeColor || '#ffffff'}
+                                                onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, themeColor: e.target.value } })}
+                                                className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
+                                            />
+                                            <span className="font-mono text-[10px] text-slate-500">{char.appearance?.themeColor}</span>
+                                        </div>
+                                     </div>
+                                     <div className="w-full h-px bg-slate-800"></div>
+                                     <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-400">卡片背景</span>
+                                        <div className="flex items-center gap-2">
+                                            <input 
+                                                type="color" 
+                                                value={char.avatarColor}
+                                                onChange={(e) => setChar({ ...char, avatarColor: e.target.value })}
+                                                className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
+                                            />
+                                            <span className="font-mono text-[10px] text-slate-500">{char.avatarColor}</span>
+                                        </div>
+                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="flex-1 bg-slate-900/50 rounded-xl border border-slate-800 p-4 text-[10px] text-slate-500 leading-relaxed overflow-y-auto">
+                            <p className="font-bold text-slate-400 mb-2">提示</p>
+                            <p>• 物理伤害 (Physical) 会让角色移动并攻击。</p>
+                            <p>• 魔法伤害 (Magic) 通常是原地施法。</p>
+                            <p>• "突刺/射击" 类型的动画会根据武器自动调整 (弓箭为射击，近战为突刺)。</p>
+                            <p>• 投掷武器 (Throw) 会隐藏手中武器并扔出一个复制品。</p>
+                            <p className="text-yellow-500/50 mt-2">• 如果选择了 [突刺/射击] 或 [投掷]，发射物将强制为当前武器模型。</p>
+                        </div>
+                    </div>
                 </div>
                 )}
 
@@ -461,10 +476,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         <div className="w-1/3 flex flex-col items-center gap-6">
                             <div className="text-xl font-bold text-white retro-font">形象预览</div>
                             <div className="p-4 bg-slate-800 rounded-2xl border-2 border-slate-600 shadow-2xl">
-                                <HeroPreview appearance={char.appearance} />
-                            </div>
-                            <div className="text-center text-slate-500 text-sm">
-                                实时渲染 Pixel Sprite
+                                <HeroPreview appearance={char.appearance} bgColor={char.avatarColor} />
                             </div>
                         </div>
 
@@ -475,21 +487,34 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             </h3>
 
                             <div className="space-y-6">
-                                {/* Color Picker */}
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-bold text-slate-300">主题颜色 (全套装备)</label>
-                                    <div className="flex items-center gap-4">
-                                        <input 
-                                            type="color" 
-                                            value={char.avatarColor}
-                                            onChange={(e) => setChar({
-                                                ...char, 
-                                                avatarColor: e.target.value, 
-                                                appearance: { ...char.appearance!, themeColor: e.target.value } 
-                                            })}
-                                            className="w-16 h-10 rounded cursor-pointer border-none bg-transparent"
-                                        />
-                                        <span className="font-mono text-slate-400">{char.avatarColor}</span>
+                                {/* Separated Color Pickers */}
+                                <div className="flex gap-8 p-4 bg-slate-900/50 rounded-xl border border-slate-700">
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-bold text-slate-300">装备配色 (Theme)</label>
+                                        <div className="flex items-center gap-4">
+                                            <input 
+                                                type="color" 
+                                                value={char.appearance.themeColor}
+                                                onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, themeColor: e.target.value } })}
+                                                className="w-12 h-10 rounded cursor-pointer border-none bg-transparent"
+                                            />
+                                            <span className="font-mono text-slate-400">{char.appearance.themeColor}</span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-500">影响武器、盔甲颜色</span>
+                                    </div>
+                                    <div className="w-px bg-slate-700"></div>
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-bold text-slate-300">卡片背景 (BG)</label>
+                                        <div className="flex items-center gap-4">
+                                            <input 
+                                                type="color" 
+                                                value={char.avatarColor}
+                                                onChange={(e) => setChar({ ...char, avatarColor: e.target.value })}
+                                                className="w-12 h-10 rounded cursor-pointer border-none bg-transparent"
+                                            />
+                                            <span className="font-mono text-slate-400">{char.avatarColor}</span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-500">头像卡片的背景色，建议使用对比色</span>
                                     </div>
                                 </div>
 
@@ -541,10 +566,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                             <option value="SPEAR">长矛 (Spear)</option>
                                         </select>
                                     </div>
-                                </div>
-                                
-                                <div className="mt-8 p-4 bg-slate-900/50 rounded border border-slate-700 text-xs text-slate-500">
-                                    提示：英雄外观也会在战斗画面中实时显示。不同的武器会有微小的攻击动画差异（如法杖挥舞幅度较小，弓箭会有拉弓动作）。
                                 </div>
                             </div>
                         </div>
@@ -673,7 +694,9 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                 {skill.logic.map((branch, i) => {
                     const visual = branch.effect.visual || { color: '#ffffff', shape: 'CIRCLE', animationType: 'CAST' };
                     const isDamage = branch.effect.type.includes('DAMAGE');
-                    
+                    // Check if animation type is physical/weapon-based (Thrust/Throw)
+                    const isWeaponAnim = visual.animationType === 'THRUST' || visual.animationType === 'THROW';
+
                     return (
                     <div key={i} className="relative bg-slate-950/80 rounded-lg border border-slate-800 shadow-sm overflow-hidden hover:border-slate-700 transition-all">
                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-yellow-500 to-green-500"></div>
@@ -921,7 +944,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                             />
                                         </div>
 
-                                        {isDamage && (
+                                        {isDamage && !isWeaponAnim && (
                                             <div className="flex items-center gap-2">
                                                 <label className="text-[10px] text-slate-500 w-12">发射物</label>
                                                 <select 
@@ -935,6 +958,11 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                                     <option value="BEAM">光束</option>
                                                     <option value="ORB">法球</option>
                                                 </select>
+                                            </div>
+                                        )}
+                                        {isWeaponAnim && (
+                                            <div className="text-[10px] text-slate-500 italic p-1 bg-slate-800 rounded">
+                                                使用当前武器模型攻击，无自定义发射物。
                                             </div>
                                         )}
                                     </div>
