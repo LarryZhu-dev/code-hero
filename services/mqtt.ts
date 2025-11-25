@@ -1,4 +1,5 @@
 
+
 import mqtt from 'mqtt';
 import { BattleState, CharacterConfig } from '../types';
 
@@ -101,6 +102,10 @@ export class NetworkService {
 
     sendReady(ready: boolean) {
         this.publish('ready', { ready });
+    }
+
+    sendRematch() {
+        this.publish('rematch_request', {});
     }
 }
 

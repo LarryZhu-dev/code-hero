@@ -101,6 +101,8 @@ const getPixiApp = async () => {
 class PixelEntity {
     container: PIXI.Container;
     characterGroup: PIXI.Container;
+    bodyGroup: PIXI.Container;
+    handGroup: PIXI.Container;
     graphics: PIXI.Graphics;
     shadow: PIXI.Graphics;
     hpBar: PIXI.Container;
@@ -112,6 +114,8 @@ class PixelEntity {
     currentMana: number;
     targetHp: number;
     targetMana: number;
+    isMage: boolean;
+    isFacingLeft: boolean;
 
     // Animation State
     animOffset: number = Math.random() * 100;
@@ -124,6 +128,7 @@ class PixelEntity {
         maxMana: number, 
         isFacingLeft: boolean,
         id: string,
+        isMage: boolean,
         onClick?: (id: string) => void
     ) {
         this.container = new PIXI.Container();
@@ -142,6 +147,8 @@ class PixelEntity {
         this.currentMana = maxMana;
         this.targetHp = maxHp;
         this.targetMana = maxMana;
+        this.isMage = isMage;
+        this.isFacingLeft = isFacingLeft;
 
         // Shadow
         this.shadow = new PIXI.Graphics();
@@ -155,10 +162,20 @@ class PixelEntity {
         this.characterGroup.scale.x = isFacingLeft ? -1 : 1;
         this.container.addChild(this.characterGroup);
 
-        // Draw Pixel Character
-        this.graphics = new PIXI.Graphics();
+        // Body Group
+        this.bodyGroup = new PIXI.Container();
+        this.characterGroup.addChild(this.bodyGroup);
+
+        // Hand/Arm Group (Pivot at shoulder roughly)
+        this.handGroup = new PIXI.Container();
+        this.handGroup.x = -2 * 4; // Shoulder x
+        this.handGroup.y = -9 * 4; // Shoulder y
+        this.characterGroup.addChild(this.handGroup);
+
+        // Main Graphics (Shared logic helper, drawing to body/hand separately)
+        this.graphics = new PIXI.Graphics(); 
+        
         this.drawCharacter(colorHex);
-        this.characterGroup.addChild(this.graphics);
 
         // HP Bar Group
         this.hpBar = new PIXI.Container();
@@ -171,35 +188,75 @@ class PixelEntity {
         const hex = colorHex.startsWith('#') ? parseInt(colorHex.slice(1), 16) : 0x3b82f6;
         const dark = 0x1e293b;
         const skin = 0xffdbac;
-        
-        const g = this.graphics;
-        g.clear();
+        const S = 4; // Pixel Scale
 
-        // Pixel Scale
-        const S = 4; 
+        // Clear previous
+        this.bodyGroup.removeChildren();
+        this.handGroup.removeChildren();
 
+        const bg = new PIXI.Graphics();
+        this.bodyGroup.addChild(bg);
+
+        // -- BODY DRAWING --
         // Legs
-        g.rect(-4 * S, 0, 3 * S, 6 * S).fill(dark); // Left Leg
-        g.rect(1 * S, 0, 3 * S, 6 * S).fill(dark);  // Right Leg
+        bg.rect(-4 * S, 0, 3 * S, 6 * S).fill(dark); // Left Leg
+        bg.rect(1 * S, 0, 3 * S, 6 * S).fill(dark);  // Right Leg
 
-        // Body
-        g.rect(-5 * S, -8 * S, 10 * S, 8 * S).fill(hex); // Armor
-        g.rect(-3 * S, -6 * S, 6 * S, 4 * S).fill(0xffffff); // Chest Highlight
+        if (this.isMage) {
+            // ROBE Body
+            bg.rect(-5 * S, -8 * S, 10 * S, 9 * S).fill(hex); 
+            bg.rect(-2 * S, -8 * S, 4 * S, 9 * S).fill(0x334155); // Inner robe strip
+            
+            // Head (Hooded)
+            bg.rect(-4 * S, -14 * S, 8 * S, 6 * S).fill(skin); // Face
+            bg.rect(-5 * S, -16 * S, 10 * S, 4 * S).fill(hex); // Hat Brim
+            bg.rect(-3 * S, -20 * S, 6 * S, 4 * S).fill(hex); // Hat Top
+            bg.rect(-1 * S, -22 * S, 2 * S, 2 * S).fill(hex); // Hat Tip
+        } else {
+            // ARMOR Body
+            bg.rect(-5 * S, -8 * S, 10 * S, 8 * S).fill(hex); 
+            bg.rect(-3 * S, -6 * S, 6 * S, 4 * S).fill(0xffffff); // Chest Highlight
+            
+            // Head (Helmet)
+            bg.rect(-4 * S, -14 * S, 8 * S, 6 * S).fill(skin); // Face
+            bg.rect(-4 * S, -16 * S, 8 * S, 4 * S).fill(hex); // Helmet Top
+            bg.rect(-5 * S, -15 * S, 1 * S, 6 * S).fill(hex); // Helmet Side L
+            bg.rect(4 * S, -15 * S, 1 * S, 6 * S).fill(hex); // Helmet Side R
+        }
 
-        // Head
-        g.rect(-4 * S, -14 * S, 8 * S, 6 * S).fill(skin); // Face
-        g.rect(-4 * S, -16 * S, 8 * S, 4 * S).fill(hex); // Helmet Top
-        g.rect(-5 * S, -15 * S, 1 * S, 6 * S).fill(hex); // Helmet Side L
-        g.rect(4 * S, -15 * S, 1 * S, 6 * S).fill(hex); // Helmet Side R
+        // Eyes (Common)
+        bg.rect(-2 * S, -12 * S, 1 * S, 1 * S).fill(0x000000);
+        bg.rect(1 * S, -12 * S, 1 * S, 1 * S).fill(0x000000);
 
-        // Eyes
-        g.rect(-2 * S, -12 * S, 1 * S, 1 * S).fill(0x000000);
-        g.rect(1 * S, -12 * S, 1 * S, 1 * S).fill(0x000000);
+        // -- HAND/WEAPON DRAWING --
+        const hg = new PIXI.Graphics();
+        this.handGroup.addChild(hg);
 
-        // Weapon (Sword)
-        g.rect(6 * S, -6 * S, 2 * S, 10 * S).fill(0x94a3b8); // Blade
-        g.rect(5 * S, 0 * S, 4 * S, 1 * S).fill(0x475569); // Guard
-        g.rect(6.5 * S, 1 * S, 1 * S, 3 * S).fill(0x8b4513); // Hilt
+        if (this.isMage) {
+            // Staff
+            // Local coords relative to shoulder (-2*S, -9*S)
+            // Hand
+            hg.rect(0, 0, 3 * S, 3 * S).fill(skin);
+            // Staff Handle
+            hg.rect(1 * S, -6 * S, 1 * S, 14 * S).fill(0x8b4513);
+            // Staff Gem
+            hg.circle(1.5 * S, -6 * S, 2.5 * S).fill(0x3b82f6);
+            hg.circle(1.5 * S, -6 * S, 1.5 * S).fill(0xbfdbfe); // Shine
+        } else {
+            // Sword
+            // Hand
+            hg.rect(0, 0, 3 * S, 3 * S).fill(skin);
+            // Sword Logic
+            hg.rect(1 * S, -6 * S, 2 * S, 10 * S).fill(0x94a3b8); // Blade
+            hg.rect(0 * S, 0 * S, 4 * S, 1 * S).fill(0x475569); // Guard
+            hg.rect(1.5 * S, 1 * S, 1 * S, 3 * S).fill(0x8b4513); // Hilt
+            
+            // Rotate sword slightly forward to look natural
+            hg.rotation = 0.5;
+            hg.x = 2 * S;
+        }
+
+        this.graphics = bg; // Reference for tinting
     }
 
     updateBars() {
@@ -208,7 +265,6 @@ class PixelEntity {
         const g = new PIXI.Graphics();
         
         // --- HP BAR ---
-        // Use effective max to prevent overflow, keeping width fixed at 80px
         const visualMaxHp = Math.max(this.maxHp, this.currentHp);
         
         // HP Background
@@ -219,35 +275,23 @@ class PixelEntity {
         const hpPct = visualMaxHp > 0 ? Math.max(0, this.currentHp / visualMaxHp) : 0;
         g.rect(-barWidth/2, 0, barWidth * hpPct, barHeight).fill(0xef4444);
 
-        // HP Ticks (Method 1.1)
+        // HP Ticks
         if (visualMaxHp > 0) {
-            // Draw a tick every 100 HP. 
-            // FIX: Remove hard 200 tick limit, increase maxTicks significantly, adapt density.
             const tickStep = 100;
-            const maxTicks = 2000; // Increased limit
-            
+            const maxTicks = 2000;
             let ticksDrawn = 0;
             for (let v = tickStep; v < visualMaxHp && ticksDrawn < maxTicks; v += tickStep) {
                 const x = (v / visualMaxHp) * barWidth - (barWidth / 2);
-                
                 const isMajor = v % 1000 === 0;
-                // Major tick: 100% height, Minor tick: 50% height
-                // Aligned to Top (y = 0)
                 const h = isMajor ? barHeight : barHeight * 0.5;
-                const y = 0; // Top align
-                
-                // Draw tick line
-                g.rect(x, y, 1, h).fill({ color: 0x000000, alpha: 0.5 });
+                g.rect(x, 0, 1, h).fill({ color: 0x000000, alpha: 0.5 });
                 ticksDrawn++;
             }
         }
 
         // --- MANA BAR ---
-        // Mana Background
         g.rect(-barWidth/2 - 2, 12 - 2, barWidth + 4, 4 + 4).fill(0x000000);
         g.rect(-barWidth/2, 12, barWidth, 4).fill(0x334155);
-
-        // Mana Foreground
         const visualMaxMana = Math.max(this.maxMana, this.currentMana);
         const mpPct = visualMaxMana > 0 ? Math.max(0, this.currentMana / visualMaxMana) : 0;
         g.rect(-barWidth/2, 12, barWidth * mpPct, 4).fill(0x3b82f6);
@@ -259,8 +303,68 @@ class PixelEntity {
     animateIdle(time: number) {
         // Bobbing effect
         const yOffset = Math.sin((time + this.animOffset) * 0.1) * 4;
-        this.characterGroup.y = -24 + yOffset; // Center anchor adjustment + bob
+        this.characterGroup.y = -24 + yOffset;
         this.shadow.scale.set(1 + Math.sin((time + this.animOffset) * 0.1) * 0.1);
+        
+        // Idle Hand Movement
+        if (this.isMage) {
+            // Breathing with staff
+            this.handGroup.rotation = Math.sin((time + this.animOffset) * 0.05) * 0.1;
+        } else {
+             this.handGroup.rotation = Math.sin((time + this.animOffset) * 0.1) * 0.05;
+        }
+    }
+
+    async animateAttack() {
+        const startRot = this.handGroup.rotation;
+        
+        if (this.isMage) {
+            // Raise Staff
+            for(let i=0; i<10; i++) {
+                this.handGroup.rotation -= 0.1; 
+                await new Promise(r => setTimeout(r, 16));
+            }
+            // Hold
+            await new Promise(r => setTimeout(r, 100));
+            // Lower
+             for(let i=0; i<10; i++) {
+                this.handGroup.rotation += 0.1; 
+                await new Promise(r => setTimeout(r, 16));
+            }
+        } else {
+            // Swing Sword
+            // Wind up
+            for(let i=0; i<5; i++) {
+                this.handGroup.rotation -= 0.2;
+                await new Promise(r => setTimeout(r, 16));
+            }
+            // Slash down
+            for(let i=0; i<5; i++) {
+                this.handGroup.rotation += 0.5;
+                await new Promise(r => setTimeout(r, 16));
+            }
+            // Return
+             for(let i=0; i<10; i++) {
+                this.handGroup.rotation = startRot + (startRot - this.handGroup.rotation) * (i/10);
+                await new Promise(r => setTimeout(r, 16));
+            }
+        }
+        this.handGroup.rotation = startRot;
+    }
+
+    async animateCast() {
+        const startRot = this.handGroup.rotation;
+        // Raise hand/staff high
+        for(let i=0; i<15; i++) {
+            this.handGroup.rotation -= 0.15;
+            await new Promise(r => setTimeout(r, 16));
+        }
+        await new Promise(r => setTimeout(r, 200));
+         for(let i=0; i<15; i++) {
+            this.handGroup.rotation += 0.15;
+            await new Promise(r => setTimeout(r, 16));
+        }
+        this.handGroup.rotation = startRot;
     }
 }
 
@@ -335,6 +439,7 @@ const createProjectile = (
     endY: number, 
     color: number, 
     value: number, 
+    trajectory: 'LINEAR' | 'PARABOLIC',
     onHit: () => void
 ) => {
     const g = new PIXI.Graphics();
@@ -348,6 +453,12 @@ const createProjectile = (
     // Glow
     g.circle(0, 0, size * 1.5).fill({ color: color, alpha: 0.3 });
 
+    // If linear magic, add a tail
+    if (trajectory === 'LINEAR') {
+        g.circle(-size, 0, size * 0.8).fill({ color: color, alpha: 0.6 });
+        g.circle(-size * 2, 0, size * 0.5).fill({ color: color, alpha: 0.3 });
+    }
+
     g.x = startX;
     g.y = startY;
 
@@ -355,7 +466,7 @@ const createProjectile = (
     const dx = endX - startX;
     const dy = endY - startY;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    const speed = 15;
+    const speed = trajectory === 'LINEAR' ? 20 : 15;
     const duration = distance / speed;
     
     let progress = 0;
@@ -367,8 +478,13 @@ const createProjectile = (
         progress += 1;
         const ratio = Math.min(1, progress / duration);
         
-        g.x = startX + dx * ratio;
-        g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 50; // Arc
+        if (trajectory === 'LINEAR') {
+             g.x = startX + dx * ratio;
+             g.y = startY + dy * ratio;
+        } else {
+             g.x = startX + dx * ratio;
+             g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 50; // Arc
+        }
 
         // Create trail dot
         if (progress % 2 === 0) {
@@ -503,11 +619,20 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 // -- Characters --
                 const maxHp1 = getTotalStat(gameState.p1, StatType.HP);
                 const maxMana1 = getTotalStat(gameState.p1, StatType.MANA);
-                const v1 = new PixelEntity(gameState.p1.config.avatarColor, 200, 300, maxHp1, maxMana1, false, gameState.p1.id, onEntityClick);
+                // Check Mage Condition (AP >= 2 * AD)
+                const p1AD = getTotalStat(gameState.p1, StatType.AD);
+                const p1AP = getTotalStat(gameState.p1, StatType.AP);
+                const p1IsMage = p1AP >= (p1AD * 2) && p1AP > 0;
+
+                const v1 = new PixelEntity(gameState.p1.config.avatarColor, 200, 300, maxHp1, maxMana1, false, gameState.p1.id, p1IsMage, onEntityClick);
                 
                 const maxHp2 = getTotalStat(gameState.p2, StatType.HP);
                 const maxMana2 = getTotalStat(gameState.p2, StatType.MANA);
-                const v2 = new PixelEntity(gameState.p2.config.avatarColor, 600, 300, maxHp2, maxMana2, true, gameState.p2.id, onEntityClick);
+                const p2AD = getTotalStat(gameState.p2, StatType.AD);
+                const p2AP = getTotalStat(gameState.p2, StatType.AP);
+                const p2IsMage = p2AP >= (p2AD * 2) && p2AP > 0;
+
+                const v2 = new PixelEntity(gameState.p2.config.avatarColor, 600, 300, maxHp2, maxMana2, true, gameState.p2.id, p2IsMage, onEntityClick);
 
                 // Sync initial state
                 v1.currentHp = gameState.p1.currentHp;
@@ -684,16 +809,20 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 // For Projectiles, we wait for impact (logic handled inside)
                 if (evt.type === 'PROJECTILE' && source && target) {
                     await new Promise<void>(resolve => {
-                        const color = evt.projectileType === 'MAGIC' ? 0x3b82f6 : 0xef4444;
+                        const isMagic = evt.projectileType === 'MAGIC';
+                        const color = isMagic ? 0x3b82f6 : 0xef4444;
                         const value = evt.value || 100;
+                        const trajectory = isMagic ? 'LINEAR' : 'PARABOLIC';
+                        
                         createProjectile(
                             app, 
-                            source.container.x, 
-                            source.container.y - 30, 
+                            source.container.x + (source.isFacingLeft ? -20 : 20), 
+                            source.container.y - 40, 
                             target.container.x, 
                             target.container.y - 30, 
                             color, 
                             value, 
+                            trajectory,
                             resolve
                         );
                     });
@@ -714,6 +843,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                         await new Promise(r => setTimeout(r, 16));
                     }
                     
+                    // Trigger hand animation (Melee Swing)
+                    source.animateAttack();
+
                     // Slash visual
                     createSlashEffect(app, target.container.x, target.container.y);
                     
@@ -723,6 +855,13 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 } 
                 else if (evt.type === 'SKILL_EFFECT' && source) {
                     spawnText(evt.skillName || 'CAST', source.container.x, source.container.y - 40, '#fbbf24');
+                    // Trigger Cast Animation
+                    if (evt.skillName === '普通攻击') {
+                        source.animateAttack(); // Magic Basic Attack
+                    } else {
+                        source.animateCast();
+                    }
+                    
                     // Charge Effect
                     createMagicEffect(app, source.container.x, source.container.y, 0xfbbf24);
                     await new Promise(r => setTimeout(r, 400));
@@ -736,7 +875,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     createParticles(app, target.container.x, target.container.y, 0xef4444, particleCount, 'EXPLOSION');
 
                     // Flash Red
-                    const originalTint = target.characterGroup.tint;
+                    const originalTint = target.graphics.tint;
                     target.graphics.tint = 0xff0000;
                     
                     // Shake

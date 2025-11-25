@@ -135,57 +135,102 @@ export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: 
 };
 
 export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, pushEvent: (evt: BattleEvent) => void): void => {
-    // Animation: Move to target
-    pushEvent({
-        type: 'ATTACK_MOVE',
-        sourceId: caster.id,
-        targetId: target.id,
-        skillName: '普通攻击'
-    });
+    const totalAD = getTotalStat(caster, StatType.AD);
+    const totalAP = getTotalStat(caster, StatType.AP);
+    
+    // Adaptive Logic
+    const isMagic = totalAP > totalAD;
+    const rawDamage = isMagic ? totalAP : totalAD;
 
-    const damageRaw = getTotalStat(caster, StatType.AD);
+    // Animation: Move to target ONLY if physical
+    if (!isMagic) {
+        pushEvent({
+            type: 'ATTACK_MOVE',
+            sourceId: caster.id,
+            targetId: target.id,
+            skillName: '普通攻击'
+        });
+    } else {
+        // If magic, just trigger the casting/attack visual
+        pushEvent({
+            type: 'SKILL_EFFECT',
+            sourceId: caster.id,
+            skillName: '普通攻击',
+            text: undefined // No text popup, just visual trigger
+        });
+    }
+
+    let mitigation = 1;
+
+    if (isMagic) {
+        // Magic Damage Calc
+        const mr = getTotalStat(target, StatType.MR);
+        const penFlat = getTotalStat(caster, StatType.MAGIC_PEN_FLAT);
+        const penPerc = getTotalStat(caster, StatType.MAGIC_PEN_PERC);
+        const effectiveMr = Math.max(0, (mr * (1 - penPerc / 100)) - penFlat);
+        mitigation = effectiveMr > 0 ? (100 / (100 + effectiveMr)) : 1;
+    } else {
+        // Physical Damage Calc
+        const armor = getTotalStat(target, StatType.ARMOR);
+        const penFlat = getTotalStat(caster, StatType.ARMOR_PEN_FLAT);
+        const penPerc = getTotalStat(caster, StatType.ARMOR_PEN_PERC);
+        const effectiveArmor = Math.max(0, (armor * (1 - penPerc / 100)) - penFlat);
+        mitigation = effectiveArmor > 0 ? (100 / (100 + effectiveArmor)) : 1; 
+    }
     
-    const armor = getTotalStat(target, StatType.ARMOR);
-    const penFlat = getTotalStat(caster, StatType.ARMOR_PEN_FLAT);
-    const penPerc = getTotalStat(caster, StatType.ARMOR_PEN_PERC);
-    
-    const effectiveArmor = Math.max(0, (armor * (1 - penPerc / 100)) - penFlat);
-    const mitigation = effectiveArmor > 0 ? (100 / (100 + effectiveArmor)) : 1; 
-    
+    // Crit (Applies to both forms of basic attack usually in this game context)
     const critRate = getTotalStat(caster, StatType.CRIT_RATE);
     const isCrit = Math.random() * 100 < critRate;
     const baseCritDmg = 150; 
     const extraCritDmg = getTotalStat(caster, StatType.CRIT_DMG); 
     const critMult = isCrit ? ((baseCritDmg + extraCritDmg) / 100) : 1;
 
-    let damage = Math.max(1, damageRaw * mitigation * critMult);
+    let damage = Math.max(1, rawDamage * mitigation * critMult);
     damage = Math.floor(damage);
     
-    // Lifesteal
-    const lifesteal = getTotalStat(caster, StatType.LIFESTEAL) + getTotalStat(caster, StatType.OMNIVAMP);
-    if (lifesteal > 0) {
-        const healAmt = Math.floor(damage * (lifesteal / 100));
+    // Vamp Logic
+    let healAmt = 0;
+    const omnivamp = getTotalStat(caster, StatType.OMNIVAMP);
+    
+    if (isMagic) {
+        // Magic Attack uses Omnivamp
+        if (omnivamp > 0) healAmt += Math.floor(damage * (omnivamp / 100));
+    } else {
+        // Physical Attack uses Lifesteal + Omnivamp
+        const lifesteal = getTotalStat(caster, StatType.LIFESTEAL);
+        const totalVamp = lifesteal + omnivamp;
+        if (totalVamp > 0) healAmt += Math.floor(damage * (totalVamp / 100));
+    }
+
+    if (healAmt > 0) {
         caster.currentHp += healAmt;
         // Overheal expands Max HP
         if (caster.currentHp > caster.maxHp) caster.maxHp = caster.currentHp;
-
-        if (healAmt > 0) {
-            pushEvent({ type: 'HEAL', targetId: caster.id, value: healAmt, color: '#4ade80' });
-        }
+        pushEvent({ type: 'HEAL', targetId: caster.id, value: healAmt, color: '#4ade80' });
     }
 
     target.currentHp -= damage;
     
+    // Push Events
+    pushEvent({
+        type: 'PROJECTILE',
+        sourceId: caster.id,
+        targetId: target.id,
+        projectileType: isMagic ? 'MAGIC' : 'PHYSICAL', // Visual changes
+        value: damage
+    });
+
     pushEvent({
         type: 'DAMAGE',
         targetId: target.id,
         value: damage,
         text: isCrit ? '暴击!' : '',
-        color: isCrit ? '#fca5a5' : '#ef4444'
+        color: isCrit ? (isMagic ? '#f0abfc' : '#fca5a5') : (isMagic ? '#a855f7' : '#ef4444')
     });
+    
     pushEvent({
         type: 'TEXT',
-        text: `${caster.config.name} 对 ${target.config.name} 造成 ${damage} 点物理伤害`
+        text: `${caster.config.name} 对 ${target.config.name} 造成 ${damage} 点${isMagic ? '魔法' : '物理'}伤害`
     });
 };
 

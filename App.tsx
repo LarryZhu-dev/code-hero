@@ -4,14 +4,37 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
-import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent } from './types';
+import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent, DYNAMIC_STATS } from './types';
 import { processSkill, evaluateCondition, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
-import { Swords, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe, CheckCircle2, PlayCircle, Loader2, Eye, Copy, Check, X, Shield, Lock, GitBranch } from 'lucide-react';
+import { Swords, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe, CheckCircle2, PlayCircle, Loader2, Eye, Copy, Check, X, Shield, Lock, Heart, Sparkles, Wind, Crosshair, Axe, ShieldCheck, HeartPulse, ShieldAlert, ArrowUpFromLine, RefreshCcw, Home } from 'lucide-react';
 
 type AppView = 'MENU' | 'HERO_LIST' | 'EDITOR' | 'BATTLE_SETUP' | 'LOBBY' | 'BATTLE';
 type UserRole = 'HOST' | 'CHALLENGER' | 'SPECTATOR' | 'NONE';
+
+// --- Stat Icon Mapping ---
+const getStatIcon = (stat: StatType) => {
+    switch (stat) {
+        case StatType.HP: return <Heart size={14} className="text-red-500" />;
+        case StatType.MANA: return <Zap size={14} className="text-blue-500" />;
+        case StatType.AD: return <Swords size={14} className="text-orange-500" />;
+        case StatType.AP: return <Sparkles size={14} className="text-purple-500" />;
+        case StatType.ARMOR: return <Shield size={14} className="text-yellow-500" />;
+        case StatType.MR: return <ShieldCheck size={14} className="text-cyan-500" />;
+        case StatType.SPEED: return <Wind size={14} className="text-emerald-500" />;
+        case StatType.CRIT_RATE: return <Crosshair size={14} className="text-pink-500" />;
+        case StatType.CRIT_DMG: return <Axe size={14} className="text-rose-700" />;
+        case StatType.LIFESTEAL: return <HeartPulse size={14} className="text-red-400" />;
+        case StatType.OMNIVAMP: return <HeartPulse size={14} className="text-purple-400" />;
+        case StatType.TENACITY: return <ShieldAlert size={14} className="text-slate-400" />;
+        case StatType.MANA_REGEN: return <Zap size={14} className="text-blue-300" />;
+        case StatType.ARMOR_PEN_FLAT: case StatType.ARMOR_PEN_PERC: 
+        case StatType.MAGIC_PEN_FLAT: case StatType.MAGIC_PEN_PERC:
+            return <ArrowUpFromLine size={14} className="text-gray-400" />;
+        default: return <div className="w-3 h-3 bg-slate-600 rounded-full" />;
+    }
+};
 
 const App: React.FC = () => {
     const [view, setView] = useState<AppView>('MENU');
@@ -38,6 +61,11 @@ const App: React.FC = () => {
     // Host specific lobby state
     const [spectators, setSpectators] = useState<{id: string, name: string}[]>([]);
 
+    // Rematch State
+    const [myRematchRequest, setMyRematchRequest] = useState(false);
+    const [opponentRematchRequest, setOpponentRematchRequest] = useState(false);
+    const [opponentLeft, setOpponentLeft] = useState(false);
+
     // Inspection State
     const [inspectedEntity, setInspectedEntity] = useState<BattleEntity | null>(null);
 
@@ -53,6 +81,17 @@ const App: React.FC = () => {
     useEffect(() => {
         myRoleRef.current = myRole;
     }, [myRole]);
+
+    // -- Helper: Skill Sorting --
+    const getSortedSkills = useCallback((entity: BattleEntity | CharacterConfig) => {
+        const skills = 'config' in entity ? entity.config.skills : entity.skills;
+        const actives = skills.filter(s => !s.isPassive);
+        const passives = skills.filter(s => s.isPassive);
+        const basic: Skill = { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] };
+        
+        // Order: [Active Skills] -> [Basic Attack] -> [Passive Skills]
+        return [...actives, basic, ...passives];
+    }, []);
 
     // -- Character Management --
     
@@ -241,6 +280,11 @@ const App: React.FC = () => {
         else if (action === 'leave') {
             const leavingId = data.id;
 
+            // Mark opponent as left to disable rematch button
+            if (leavingId === challengerId || leavingId === opponentId) {
+                setOpponentLeft(true);
+            }
+
             // Universal Logic: If Challenger leaves, everyone should clear that slot visually
             if (leavingId === challengerId || leavingId === opponentId) {
                 setOpponentReady(false);
@@ -301,7 +345,18 @@ const App: React.FC = () => {
         }
         else if (action === 'sync_state') {
             setBattleState(data.state);
+            // If received new initial state (turn 1), reset rematch flags
+            if (data.state.turn === 1 && data.state.phase !== 'FINISHED') {
+                setMyRematchRequest(false);
+                setOpponentRematchRequest(false);
+                setOpponentLeft(false);
+            }
             if (view !== 'BATTLE') setView('BATTLE');
+        }
+        else if (action === 'rematch_request') {
+            if (data.sender !== playerId) {
+                setOpponentRematchRequest(true);
+            }
         }
     }, [myRole, opponentId, challengerId, opponentChar, spectators, myChar, playerId, view]);
 
@@ -309,6 +364,18 @@ const App: React.FC = () => {
     useEffect(() => {
         handleMessageRef.current = handleMessage;
     }, [handleMessage]);
+
+    // Effect to check if rematch conditions met (Host authoritative mostly, but symmetrical here)
+    useEffect(() => {
+        if (battleState?.mode === 'ONLINE_PVP' && myRole === 'HOST') {
+            if (myRematchRequest && opponentRematchRequest) {
+                // Restart Battle
+                if (myChar && opponentChar) {
+                    initBattle(myChar, opponentChar, 'ONLINE_PVP');
+                }
+            }
+        }
+    }, [myRematchRequest, opponentRematchRequest, battleState?.mode, myRole, myChar, opponentChar]);
 
     const handleToggleReady = () => {
         const newState = !amIReady;
@@ -322,7 +389,21 @@ const App: React.FC = () => {
         initBattle(myChar, opponentChar, 'ONLINE_PVP');
     };
 
+    const handleRematchClick = () => {
+        if (battleState?.mode === 'LOCAL_BOT') {
+            startLocalBotBattle();
+        } else {
+            setMyRematchRequest(true);
+            net.sendRematch();
+        }
+    };
+
     const initBattle = (hostConfig: CharacterConfig, challengerConfig: CharacterConfig, mode: BattleMode) => {
+        // Reset flags
+        setMyRematchRequest(false);
+        setOpponentRematchRequest(false);
+        setOpponentLeft(false);
+
         const p1Speed = getTotalStat({ config: hostConfig } as any, StatType.SPEED);
         const p2Speed = getTotalStat({ config: challengerConfig } as any, StatType.SPEED);
         const p1First = p1Speed >= p2Speed;
@@ -496,7 +577,7 @@ const App: React.FC = () => {
         setBattleState(newState);
         if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
         
-        setSelectedSkillIndex(0); 
+        // NOTE: removed setSelectedSkillIndex(0) to persist selection
         // processingTurnRef.current remains true until animations complete
 
     }, [battleState, playerId, myRole]);
@@ -639,20 +720,17 @@ const App: React.FC = () => {
 
         // Use MY entity for skill selection
         const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
-        const allSkills = [
-            ...myEntity.config.skills,
-            { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] } as Skill
-        ];
+        const sortedSkills = getSortedSkills(myEntity);
         
         const handleKeyDown = (e: KeyboardEvent) => {
             if (processingTurnRef.current) return;
             
             if (e.key === 'ArrowRight') {
-                setSelectedSkillIndex(prev => (prev + 1) % allSkills.length);
+                setSelectedSkillIndex(prev => (prev + 1) % sortedSkills.length);
             } else if (e.key === 'ArrowLeft') {
-                setSelectedSkillIndex(prev => (prev - 1 + allSkills.length) % allSkills.length);
+                setSelectedSkillIndex(prev => (prev - 1 + sortedSkills.length) % sortedSkills.length);
             } else if (e.key === 'Enter') {
-                const skill = allSkills[selectedSkillIndex % allSkills.length];
+                const skill = sortedSkills[selectedSkillIndex % sortedSkills.length];
                 if (!skill.isPassive) {
                     executeTurn(skill.id);
                 }
@@ -661,14 +739,19 @@ const App: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [view, battleState, playerId, selectedSkillIndex, executeTurn, myRole]);
+    }, [view, battleState, playerId, selectedSkillIndex, executeTurn, myRole, getSortedSkills]);
 
     // Helper
     const getSkillDescription = (skill: Skill, entity?: BattleEntity) => {
         let description = "";
         
         if (skill.id === 'basic_attack') {
-            return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
+            const ent = entity || { config: { stats: myChar!.stats } } as any;
+            const ad = getTotalStat(ent, StatType.AD);
+            const ap = getTotalStat(ent, StatType.AP);
+            const isMagic = ap > ad;
+            
+            return `【基础动作】造成等于当前${isMagic ? '法术强度' : '攻击力'}的${isMagic ? '魔法' : '物理'}伤害。\n(自适应: AP > AD 时造成魔法伤害)\n当前效果: ${isMagic ? '计算法穿与全能吸血' : '计算物穿与生命偷取'}\n无消耗。`;
         }
 
         const stats = entity ? entity.config.stats : myChar?.stats;
@@ -729,6 +812,55 @@ const App: React.FC = () => {
         if (!battleState) return;
         const entity = [battleState.p1, battleState.p2].find(e => e.id === id);
         if (entity) setInspectedEntity(entity);
+    };
+
+    // --- Sub-Component for Stats Panel ---
+    const StatPanel: React.FC<{ entity: BattleEntity, isRight?: boolean }> = ({ entity, isRight }) => {
+        // Exclude dynamic stats from the grid display
+        const displayStats = Object.values(StatType).filter(s => !DYNAMIC_STATS.includes(s));
+        
+        return (
+            <div className={`absolute top-20 bottom-24 w-64 ${isRight ? 'right-4' : 'left-4'} bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-4 flex flex-col z-20 overflow-y-auto custom-scrollbar shadow-2xl`}>
+                <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-2">
+                    <div className={`w-12 h-12 rounded-lg shadow-lg border-2 ${isRight ? 'border-red-500' : 'border-blue-500'}`} style={{backgroundColor: entity.config.avatarColor}}></div>
+                    <div className="flex-1 min-w-0">
+                        <div className="font-bold text-white truncate">{entity.config.name}</div>
+                        <div className="text-[10px] text-slate-400 font-mono flex flex-col gap-0.5">
+                             <div className="flex justify-between">
+                                 <span>HP</span>
+                                 <span className="text-white">{Math.floor(entity.currentHp)}/{Math.floor(getTotalStat(entity, StatType.HP))}</span>
+                             </div>
+                             <div className="flex justify-between">
+                                 <span>MP</span>
+                                 <span className="text-white">{Math.floor(entity.currentMana)}/{Math.floor(getTotalStat(entity, StatType.MANA))}</span>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                    {displayStats.map(stat => {
+                        const val = getTotalStat(entity, stat);
+                        return (
+                            <div key={stat} className="bg-slate-800/50 p-2 rounded border border-slate-700/50 flex items-center justify-between group relative hover:bg-slate-700 transition-colors cursor-help">
+                                <div className="flex items-center gap-2">
+                                    {getStatIcon(stat)}
+                                </div>
+                                <span className="font-mono text-xs font-bold text-slate-300">
+                                    {Number.isInteger(val) ? val : val.toFixed(1)}
+                                    {/* Percent suffix for stats that are purely percentage based if needed, though raw number is usually what's stored */}
+                                </span>
+                                
+                                {/* Hover Tooltip */}
+                                <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-black text-white text-xs px-2 py-1 rounded -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap pointer-events-none z-50 shadow-lg border border-slate-600">
+                                    {stat}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -1020,8 +1152,16 @@ const App: React.FC = () => {
                         <div className="absolute top-4 text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10">
                             回合 {battleState.turn}
                         </div>
+
+                        {/* Timer Moved to Top Center */}
+                         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
+                            <div className="text-xs text-slate-500 uppercase tracking-widest mb-1 shadow-black/50 text-shadow">倒计时</div>
+                            <div className={`text-2xl font-mono font-bold px-4 py-1 rounded border shadow-lg ${battleState.timeLeft < 10 ? 'text-red-500 border-red-900 bg-red-950/80' : 'text-white border-slate-700 bg-slate-800/80'}`}>
+                                {battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId ? battleState.timeLeft : '--'}
+                            </div>
+                        </div>
                         
-                        {myRole !== 'SPECTATOR' && (
+                        {myRole !== 'SPECTATOR' && !battleState.winnerId && (
                             <div className="absolute top-4 right-4 z-20">
                                 <button 
                                     onClick={handleSurrender}
@@ -1037,6 +1177,22 @@ const App: React.FC = () => {
                                 <Eye size={14}/> 观战模式
                             </div>
                         )}
+                        
+                        {/* IN-SCENE RESULT DISPLAY */}
+                        {battleState.winnerId && (
+                            <div className="absolute top-32 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                                {myRole === 'SPECTATOR' ? (
+                                    <div className="text-4xl font-bold retro-font text-yellow-400 drop-shadow-[0_4px_0_rgba(0,0,0,0.8)]">游戏结束</div>
+                                ) : (
+                                    <div className={`text-6xl font-black retro-font drop-shadow-[0_6px_0_rgba(0,0,0,0.8)] ${battleState.winnerId === playerId ? 'text-yellow-400 stroke-text-yellow' : 'text-red-600 stroke-text-red'}`}>
+                                        {battleState.winnerId === playerId ? 'VICTORY' : 'DEFEAT'}
+                                    </div>
+                                )}
+                                <div className="mt-2 text-xl font-bold text-white drop-shadow-md">
+                                    {(battleState.winnerId === battleState.p1.id ? battleState.p1.config.name : battleState.p2.config.name)} 获胜!
+                                </div>
+                            </div>
+                        )}
 
                         <BattleScene 
                             gameState={battleState} 
@@ -1044,61 +1200,74 @@ const App: React.FC = () => {
                             onEntityClick={handleEntityClick}
                         />
                         
-                        {/* HUD */}
-                        <div className="w-[800px] mt-6 flex justify-between items-center bg-slate-950/50 p-4 rounded-xl border border-slate-800 backdrop-blur-sm relative">
-                            {/* Indicator for Active Player */}
-                            <div className={`absolute top-0 bottom-0 w-1 bg-yellow-500 shadow-[0_0_10px_yellow] transition-all duration-500 ${battleState.activePlayerId === battleState.p1.id ? 'left-0 rounded-l' : 'right-0 rounded-r'}`}></div>
+                        {/* Player Stats Panels (Left & Right) */}
+                        <StatPanel entity={battleState.p1} isRight={false} />
+                        <StatPanel entity={battleState.p2} isRight={true} />
 
-                            {/* P1 Status */}
-                            <div 
-                                className={`flex gap-3 items-center transition-opacity duration-300 cursor-pointer p-2 rounded hover:bg-white/5 ${battleState.activePlayerId === battleState.p1.id ? 'opacity-100' : 'opacity-70'}`}
-                                onClick={() => handleEntityClick(battleState.p1.id)}
-                            >
-                                <div className="w-12 h-12 rounded-lg shadow-lg border border-blue-400" style={{backgroundColor: battleState.p1.config.avatarColor}}></div>
-                                <div>
-                                    <div className="font-bold text-blue-100">{battleState.p1.config.name}</div>
-                                    <div className="flex gap-3 text-xs font-mono">
-                                        <span className="text-red-400">HP: {Math.floor(battleState.p1.currentHp)}</span>
-                                        <span className="text-blue-400">MP: {Math.floor(battleState.p1.currentMana)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className="flex flex-col items-center">
-                                <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">倒计时</div>
-                                <div className={`text-2xl font-mono font-bold px-4 py-1 rounded border ${battleState.timeLeft < 10 ? 'text-red-500 border-red-900 bg-red-950' : 'text-white border-slate-700 bg-slate-800'}`}>
-                                    {battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId ? battleState.timeLeft : '--'}
-                                </div>
-                            </div>
+                        {/* Active Player Indicator Bar */}
+                        <div className={`absolute bottom-0 w-full h-2 transition-all duration-500 bg-gradient-to-r from-yellow-500/0 via-yellow-500 to-yellow-500/0 ${battleState.activePlayerId === battleState.p1.id ? 'translate-x-[-25%]' : 'translate-x-[25%]'}`}></div>
 
-                            {/* P2 Status */}
-                            <div 
-                                className={`flex gap-3 items-center text-right transition-opacity duration-300 cursor-pointer p-2 rounded hover:bg-white/5 ${battleState.activePlayerId === battleState.p2.id ? 'opacity-100' : 'opacity-70'}`}
-                                onClick={() => handleEntityClick(battleState.p2.id)}
-                            >
-                                <div>
-                                    <div className="font-bold text-red-100">{battleState.p2.config.name}</div>
-                                    <div className="flex gap-3 text-xs font-mono justify-end">
-                                        <span className="text-red-400">HP: {Math.floor(battleState.p2.currentHp)}</span>
-                                        <span className="text-blue-400">MP: {Math.floor(battleState.p2.currentMana)}</span>
-                                    </div>
-                                </div>
-                                <div className="w-12 h-12 rounded-lg shadow-lg border border-red-400" style={{backgroundColor: battleState.p2.config.avatarColor}}></div>
-                            </div>
-                        </div>
 
-                        {/* Controls */}
+                        {/* Controls (Bottom Center) */}
+                        <div className={`absolute bottom-4 w-full max-w-4xl left-1/2 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-8 duration-500 transition-all`}>
                         {(() => {
                             const isMyTurn = battleState.activePlayerId === playerId;
                             const isSpectating = myRole === 'SPECTATOR';
-
-                            // Render skill bar regardless of turn (unless Spectating or Finished)
-                            if (!isSpectating && !battleState.winnerId && battleState.phase !== 'FINISHED') {
+                            
+                            // --- GAME FINISHED UI ---
+                            if (battleState.winnerId || battleState.phase === 'FINISHED') {
                                 return (
-                                    <div className={`mt-8 w-full max-w-4xl flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-8 duration-500 transition-all ${!isMyTurn ? 'opacity-60 grayscale' : ''}`}>
+                                    <div className="bg-slate-900/90 border border-slate-700 rounded-xl p-6 flex items-center justify-center gap-8 shadow-2xl backdrop-blur max-w-lg mx-auto">
+                                        <button 
+                                            onClick={() => { net.disconnect(); setView('HERO_LIST'); }} 
+                                            className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-bold transition-all hover:scale-105 border border-slate-600"
+                                        >
+                                            <Home size={20} /> 返回名册
+                                        </button>
                                         
+                                        {!isSpectating && (
+                                            <button 
+                                                onClick={handleRematchClick}
+                                                disabled={myRematchRequest || opponentLeft}
+                                                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-bold transition-all shadow-lg border ${
+                                                    opponentLeft 
+                                                        ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
+                                                        : myRematchRequest 
+                                                            ? 'bg-yellow-900/50 text-yellow-400 border-yellow-600/50 cursor-wait'
+                                                            : 'bg-blue-600 hover:bg-blue-500 text-white hover:scale-105 border-blue-400'
+                                                }`}
+                                            >
+                                                {opponentLeft ? (
+                                                    <>对方已离开</>
+                                                ) : myRematchRequest ? (
+                                                    <><Loader2 size={20} className="animate-spin" /> 等待对方...</>
+                                                ) : (
+                                                    <><RefreshCcw size={20} /> 再来一局</>
+                                                )}
+                                            </button>
+                                        )}
+                                        
+                                        {/* Show opponent status text if in Online PVP */}
+                                        {battleState.mode === 'ONLINE_PVP' && !isSpectating && !opponentLeft && (
+                                             <div className="absolute -top-10 left-0 right-0 text-center">
+                                                {opponentRematchRequest && !myRematchRequest && (
+                                                    <span className="bg-blue-900/80 text-blue-200 px-3 py-1 rounded-full text-xs animate-bounce border border-blue-500">
+                                                        对方想再来一局!
+                                                    </span>
+                                                )}
+                                             </div>
+                                        )}
+                                    </div>
+                                );
+                            }
+
+                            // --- GAME ACTIVE UI ---
+                            // Render skill bar regardless of turn (unless Spectating)
+                            if (!isSpectating) {
+                                return (
+                                    <>
                                         {!isMyTurn && (
-                                            <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-30 bg-slate-900/80 px-4 py-2 rounded-full border border-slate-700 text-yellow-400 font-bold flex items-center gap-2">
+                                            <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-30 bg-slate-900/80 px-4 py-2 rounded-full border border-slate-700 text-yellow-400 font-bold flex items-center gap-2 whitespace-nowrap">
                                                 <Lock size={16}/> 对手回合 - 技能仅供查看
                                             </div>
                                         )}
@@ -1107,13 +1276,10 @@ const App: React.FC = () => {
                                             {(() => {
                                                 // Always show MY skills
                                                 const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
-                                                const allSkills = [
-                                                    ...myEntity.config.skills,
-                                                    { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] } as Skill
-                                                ];
+                                                const sortedSkills = getSortedSkills(myEntity);
                                                 
-                                                return allSkills.map((skill, idx) => {
-                                                    const isSelected = idx === (selectedSkillIndex % allSkills.length);
+                                                return sortedSkills.map((skill, idx) => {
+                                                    const isSelected = idx === (selectedSkillIndex % sortedSkills.length);
                                                     const cost = skill.id === 'basic_attack' ? 0 : calculateManaCost(skill, myEntity.config.stats, myEntity);
                                                     const canAfford = myEntity.currentMana >= cost;
                                                     const isAttack = skill.id === 'basic_attack';
@@ -1129,9 +1295,9 @@ const App: React.FC = () => {
                                                                 }
                                                             }}
                                                             className={`
-                                                                relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-between p-2 transition-all duration-200 cursor-pointer
+                                                                relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-between p-2 transition-all duration-200 cursor-pointer bg-slate-900/90
                                                                 ${isSelected ? 'scale-110 z-10 shadow-[0_0_20px_rgba(59,130,246,0.4)]' : 'scale-95 opacity-60'}
-                                                                ${isSelected ? (isPassive ? 'bg-indigo-950 border-indigo-400' : canAfford ? 'bg-slate-800 border-blue-400' : 'bg-red-950 border-red-500') : 'bg-slate-900 border-slate-700'}
+                                                                ${isSelected ? (isPassive ? 'border-indigo-400' : canAfford ? 'border-blue-400' : 'border-red-500') : 'border-slate-700'}
                                                             `}
                                                         >
                                                             {isPassive && (
@@ -1163,7 +1329,7 @@ const App: React.FC = () => {
                                             })()}
                                         </div>
 
-                                        <div className="bg-slate-900/90 border border-slate-700 rounded-xl p-6 flex flex-col items-center text-center shadow-2xl max-w-2xl mx-auto w-full min-h-[120px] relative">
+                                        <div className="absolute bottom-[calc(100%+1.5rem)] left-1/2 -translate-x-1/2 bg-slate-900/90 border border-slate-700 rounded-xl p-6 flex flex-col items-center text-center shadow-2xl max-w-2xl w-full min-h-[120px] z-20 backdrop-blur">
                                             {isMyTurn && (
                                                 <>
                                                     <div className="absolute top-4 left-4 flex gap-1">
@@ -1182,8 +1348,8 @@ const App: React.FC = () => {
                                             <div className="mt-2 w-full">
                                                 {(() => {
                                                     const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
-                                                    const allSkills = [...myEntity.config.skills, { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] } as Skill];
-                                                    const selectedSkill = allSkills[selectedSkillIndex % allSkills.length];
+                                                    const sortedSkills = getSortedSkills(myEntity);
+                                                    const selectedSkill = sortedSkills[selectedSkillIndex % sortedSkills.length];
                                                     
                                                     return (
                                                         <>
@@ -1196,41 +1362,18 @@ const App: React.FC = () => {
                                                 })()}
                                             </div>
                                         </div>
-                                    </div>
+                                    </>
                                 )
                             }
                         })()}
+                        </div>
                         
                         {(battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId && battleState.phase !== 'EXECUTING') 
                             && !battleState.winnerId && (
-                             <div className="mt-8 text-slate-500 font-mono animate-pulse flex items-center gap-2">
+                             <div className="absolute bottom-32 left-1/2 -translate-x-1/2 text-slate-500 font-mono animate-pulse flex items-center gap-2">
                                 <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
                                 {myRole === 'SPECTATOR' ? '玩家思考中...' : '等待对手行动...'}
                              </div>
-                        )}
-
-                        {battleState.winnerId && (
-                            <div className="absolute inset-0 bg-slate-900/90 flex items-center justify-center z-50 backdrop-blur-sm animate-in fade-in duration-1000">
-                                <div className="text-center transform scale-110">
-                                    {myRole === 'SPECTATOR' ? (
-                                        <h2 className="text-5xl font-bold mb-6 retro-font text-yellow-400">
-                                            游戏结束
-                                        </h2>
-                                    ) : (
-                                        <h2 className={`text-6xl font-bold mb-6 retro-font ${
-                                            (battleState.winnerId === playerId) ? 'text-yellow-400' : 'text-red-500'
-                                        }`}>
-                                            { (battleState.winnerId === playerId) ? '胜利' : '失败' }
-                                        </h2>
-                                    )}
-                                    <button 
-                                        onClick={() => { net.disconnect(); setView('HERO_LIST'); }} 
-                                        className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold hover:bg-blue-50 hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)]"
-                                    >
-                                        返回名册
-                                    </button>
-                                </div>
-                            </div>
                         )}
                     </div>
 
