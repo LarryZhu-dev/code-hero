@@ -212,13 +212,16 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, p
     target.currentHp -= damage;
     
     // Push Events
-    pushEvent({
-        type: 'PROJECTILE',
-        sourceId: caster.id,
-        targetId: target.id,
-        projectileType: isMagic ? 'MAGIC' : 'PHYSICAL', // Visual changes
-        value: damage
-    });
+    // Only send projectile if Magic. Physical uses Melee animation (ATTACK_MOVE).
+    if (isMagic) {
+        pushEvent({
+            type: 'PROJECTILE',
+            sourceId: caster.id,
+            targetId: target.id,
+            projectileType: 'MAGIC',
+            value: damage
+        });
+    }
 
     pushEvent({
         type: 'DAMAGE',
