@@ -10,7 +10,7 @@ import {
     IconBack, IconBolt, IconDownload, IconEdit, IconEye, IconHeart, IconMana, 
     IconPlay, IconPlus, IconSave, IconShield, IconStaff, IconSword, IconTrash, 
     IconX, IconBoot, IconSkull, IconCrosshair, IconBrokenShield, IconVampire, 
-    IconDroplet, IconSpark, IconMuscle
+    IconDroplet, IconSpark, IconMuscle, RoleBadge
 } from './PixelIcons';
 
 interface Props {
@@ -457,16 +457,14 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         placeholder="角色名称"
                     />
                     
-                    <div className="px-3 py-1 bg-slate-800 border-2 border-slate-600 text-xs font-mono text-slate-300">
-                        {char.role ? getRoleDisplayName(char.role) : '未定级'}
-                    </div>
+                    <RoleBadge role={char.role || 'WARRIOR'} />
                 </div>
                 <div className="flex gap-3">
-                    <button onClick={exportConfig} className="pixel-btn pixel-btn-secondary border-2">
-                        <IconDownload size={16} /> 导出
+                    <button onClick={exportConfig} className="pixel-btn pixel-btn-secondary border-2 flex items-center justify-center gap-2 px-4 py-2 font-bold">
+                        <IconDownload size={18} /> 导出
                     </button>
-                    <button onClick={handleSave} className="pixel-btn pixel-btn-primary border-2">
-                        <IconSave size={16} /> 保存角色
+                    <button onClick={handleSave} className="pixel-btn pixel-btn-primary border-2 flex items-center justify-center gap-2 px-4 py-2 font-bold">
+                        <IconSave size={18} /> 保存角色
                     </button>
                 </div>
             </header>
@@ -812,18 +810,18 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                         </div>
                     </div>
                     <div className="h-6 w-[2px] bg-slate-700"></div>
-                    <label className="flex items-center gap-2 cursor-pointer select-none group/toggle" title={skill.isPassive ? "被动" : "主动"}>
-                        <div className={`w-10 h-6 border-2 flex items-center px-1 transition-colors ${skill.isPassive ? 'bg-blue-600 border-blue-800' : 'bg-slate-700 border-slate-600'}`}>
-                            <div className={`w-3 h-3 bg-white transition-transform ${skill.isPassive ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                        </div>
-                        <input 
-                            type="checkbox" 
-                            className="hidden"
-                            checked={skill.isPassive} 
-                            onChange={(e) => onChange({...skill, isPassive: e.target.checked})} 
-                        />
-                    </label>
-                    <button onClick={onDelete} className="text-slate-500 hover:text-red-400 transition-all">
+                    
+                    {/* New Slider Toggle for Active/Passive */}
+                    <div 
+                        onClick={() => onChange({...skill, isPassive: !skill.isPassive})}
+                        className="flex items-center bg-slate-950 rounded-full p-1 border border-slate-600 relative w-24 h-6 cursor-pointer select-none"
+                    >
+                        <div className={`absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-full transition-all duration-200 z-0 ${skill.isPassive ? 'left-[calc(50%+1px)] bg-indigo-600' : 'left-0.5 bg-green-600'}`}></div>
+                        <span className={`flex-1 text-center text-[10px] z-10 relative font-bold transition-colors ${!skill.isPassive ? 'text-white' : 'text-slate-500'}`}>主动</span>
+                        <span className={`flex-1 text-center text-[10px] z-10 relative font-bold transition-colors ${skill.isPassive ? 'text-white' : 'text-slate-500'}`}>被动</span>
+                    </div>
+
+                    <button onClick={onDelete} className="text-slate-500 hover:text-red-400 transition-all ml-1">
                         <IconTrash size={16} />
                     </button>
                 </div>
