@@ -1,12 +1,17 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, EffectVisual, VisualShape, AppearanceConfig, HeadType, BodyType, WeaponType, AnimationType } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword, Sparkles, X } from 'lucide-react';
+import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, EffectVisual, VisualShape, AppearanceConfig, HeadType, BodyType, WeaponType, AnimationType, STAT_DESCRIPTIONS } from '../types';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
 import { classifyHero, getDefaultAppearance, getRoleDisplayName, drawWeapon } from '../utils/heroSystem';
 import { createProjectile, createAuraEffect, createParticles, createSlashEffect, createMagicEffect } from '../utils/visualEffects';
 import * as PIXI from 'pixi.js';
 import HeroAvatar from './HeroAvatar';
+import { 
+    IconBack, IconBolt, IconDownload, IconEdit, IconEye, IconHeart, IconMana, 
+    IconPlay, IconPlus, IconSave, IconShield, IconStaff, IconSword, IconTrash, 
+    IconX, IconBoot, IconSkull, IconCrosshair, IconBrokenShield, IconVampire, 
+    IconDroplet, IconSpark, IconMuscle
+} from './PixelIcons';
 
 interface Props {
     onSave: (char: CharacterConfig) => void;
@@ -24,16 +29,40 @@ const generateId = () => {
     return Math.random().toString(36).substring(2, 15);
 };
 
-const baseSelectClass = "appearance-none outline-none font-mono text-xs px-3 py-1.5 rounded cursor-pointer transition-all border shadow-sm text-center font-bold";
+const baseSelectClass = "appearance-none outline-none font-mono text-xs px-2 py-1 cursor-pointer transition-all border-2 text-center font-bold rounded-none h-8 flex items-center justify-center";
 
 const styles = {
-    target: `${baseSelectClass} bg-indigo-950/50 border-indigo-700 text-indigo-300 hover:bg-indigo-900 hover:border-indigo-500`,
-    variable: `${baseSelectClass} bg-sky-950/50 border-sky-700 text-sky-300 hover:bg-sky-900 hover:border-sky-500`,
-    operator: `${baseSelectClass} bg-orange-950/50 border-orange-700 text-orange-400 hover:bg-orange-900 hover:border-orange-500 min-w-[3rem]`,
-    action: `${baseSelectClass} bg-emerald-950/50 border-emerald-700 text-emerald-400 hover:bg-emerald-900 hover:border-emerald-500`,
-    input: "bg-slate-950/50 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-center text-yellow-200 w-20 focus:border-yellow-500 outline-none transition-colors",
+    target: `${baseSelectClass} bg-indigo-950 border-indigo-700 text-indigo-300 hover:bg-indigo-900`,
+    variable: `${baseSelectClass} bg-sky-950 border-sky-700 text-sky-300 hover:bg-sky-900`,
+    operator: `${baseSelectClass} bg-orange-950 border-orange-700 text-orange-400 hover:bg-orange-900 min-w-[2.5rem]`,
+    action: `${baseSelectClass} bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900`,
+    input: "bg-slate-950 border-2 border-slate-700 px-1 py-1 text-xs font-mono text-center text-yellow-200 w-16 h-8 focus:border-yellow-500 outline-none transition-colors rounded-none",
 };
 
+const getStatIcon = (stat: StatType) => {
+    switch(stat) {
+        case StatType.HP: return <IconHeart size={18} className="text-red-500"/>;
+        case StatType.MANA: return <IconMana size={18} className="text-blue-500"/>;
+        case StatType.AD: return <IconSword size={18} className="text-orange-500"/>;
+        case StatType.AP: return <IconStaff size={18} className="text-purple-500"/>;
+        case StatType.ARMOR: return <IconShield size={18} className="text-yellow-500"/>;
+        case StatType.MR: return <IconShield size={18} className="text-cyan-500"/>;
+        case StatType.SPEED: return <IconBoot size={18} className="text-emerald-500"/>;
+        case StatType.CRIT_RATE: return <IconCrosshair size={18} className="text-pink-500"/>;
+        case StatType.CRIT_DMG: return <IconSkull size={18} className="text-red-700"/>;
+        case StatType.ARMOR_PEN_FLAT: return <IconBrokenShield size={18} className="text-orange-300"/>;
+        case StatType.ARMOR_PEN_PERC: return <IconBrokenShield size={18} className="text-orange-600"/>;
+        case StatType.MAGIC_PEN_FLAT: return <IconSpark size={18} className="text-purple-300"/>;
+        case StatType.MAGIC_PEN_PERC: return <IconSpark size={18} className="text-purple-600"/>;
+        case StatType.LIFESTEAL: return <IconVampire size={18} className="text-red-600"/>;
+        case StatType.OMNIVAMP: return <IconVampire size={18} className="text-purple-600"/>;
+        case StatType.MANA_REGEN: return <IconDroplet size={18} className="text-blue-300"/>;
+        case StatType.TENACITY: return <IconMuscle size={18} className="text-yellow-600"/>;
+        default: return <div className="w-4 h-4 bg-slate-600" />;
+    }
+}
+
+// ... (Color Generation Logic) ...
 const generateContrastingColor = (hex: string): string => {
     const color = parseInt(hex.replace('#', ''), 16);
     const r = (color >> 16) & 255;
@@ -82,6 +111,7 @@ const generateContrastingColor = (hex: string): string => {
 };
 
 const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose: () => void }> = ({ effect, weapon, onClose }) => {
+    // ... (Keep existing implementation logic) ...
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<PIXI.Application | null>(null);
     const effectRef = useRef(effect);
@@ -122,7 +152,7 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
 
             const targetContainer = new PIXI.Container();
             targetContainer.x = 450; targetContainer.y = 280;
-            targetContainer.scale.set(1.5); // Face left
+            targetContainer.scale.set(1.5);
             targetContainer.scale.x = -1.5;
             app.stage.addChild(targetContainer);
 
@@ -160,21 +190,17 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
                     const color = parseInt((visual.color || '#ffffff').replace('#', '0x'));
 
                     if (animType === 'THRUST') {
-                         // Dash Hit Return
                          const startX = casterContainer.x;
                          const targetX = targetContainer.x - 80;
                          let t = 0;
                          const tick = () => {
                              t++;
                              if (t < 20) {
-                                 // Dash forward
                                  casterContainer.x += (targetX - startX) / 20;
                              } else if (t === 20) {
-                                 // Hit
                                  createSlashEffect(app, targetContainer.x, targetContainer.y);
                                  createParticles(app, targetContainer.x, targetContainer.y - 30, 0xff0000, 5);
                              } else if (t > 30 && t < 50) {
-                                 // Return
                                  casterContainer.x += (startX - casterContainer.x) * 0.2;
                              } else if (t >= 50) {
                                  casterContainer.x = startX;
@@ -184,7 +210,6 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
                          app.ticker.add(tick);
 
                     } else if (animType === 'THROW') {
-                        // Throw - Pick - Return
                         weaponG.visible = false;
                         const clone = new PIXI.Graphics();
                         drawWeapon(clone, wConfig);
@@ -198,25 +223,20 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
                         const tick = () => {
                             t++;
                             if (t < 30) {
-                                // Throw Arc
                                 const progress = t / 30;
                                 clone.x = startX + (tx - startX) * progress;
-                                clone.y = (casterContainer.y - 40) - Math.sin(progress * Math.PI) * 100 + (progress * 40); // Arc to ground
+                                clone.y = (casterContainer.y - 40) - Math.sin(progress * Math.PI) * 100 + (progress * 40); 
                                 clone.rotation += 0.5;
                             } else if (t === 30) {
-                                // Hit
                                 clone.rotation = 2.5;
                                 clone.y = targetContainer.y;
                                 createParticles(app, tx, targetContainer.y - 20, color, 5);
                             } else if (t > 30 && t < 60) {
-                                // Run to weapon
                                 casterContainer.x += (tx - 40 - casterContainer.x) * 0.1;
                             } else if (t === 60) {
-                                // Pickup
                                 clone.destroy();
                                 weaponG.visible = true;
                             } else if (t > 70 && t < 100) {
-                                // Return
                                 casterContainer.x += (startX - casterContainer.x) * 0.1;
                             } else if (t >= 100) {
                                 casterContainer.x = startX;
@@ -226,7 +246,6 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
                         app.ticker.add(tick);
 
                     } else {
-                        // Standard Cast
                         createMagicEffect(app, casterContainer.x, casterContainer.y - 40, color);
                         
                         if (eff.type.includes('DAMAGE')) {
@@ -242,7 +261,6 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
                                  }
                              );
                         } else {
-                            // Buff Visual
                             const isSelf = eff.target === 'SELF';
                             const tx = isSelf ? casterContainer.x : targetContainer.x;
                             const ty = isSelf ? casterContainer.y : targetContainer.y;
@@ -267,13 +285,13 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
-            <div className="bg-slate-900 rounded-xl border border-slate-700 shadow-2xl p-4 w-[640px] relative" onClick={e => e.stopPropagation()}>
+            <div className="bg-slate-900 border-4 border-slate-600 shadow-2xl p-4 w-[640px] relative" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-white font-bold retro-font">特效预览</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                    <h3 className="text-white font-bold retro-font flex items-center gap-2"><IconEye size={20}/> 特效预览</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-white"><IconX size={20}/></button>
                 </div>
-                <div ref={containerRef} className="w-[600px] h-[400px] rounded border border-slate-800 bg-black overflow-hidden mx-auto"></div>
-                <div className="text-center text-xs text-slate-500 mt-2">预览动画每 3 秒循环一次</div>
+                <div ref={containerRef} className="w-[600px] h-[400px] border-4 border-slate-800 bg-black overflow-hidden mx-auto"></div>
+                <div className="text-center text-xs text-slate-500 mt-2 font-mono">预览动画每 3 秒循环一次</div>
             </div>
         </div>
     );
@@ -290,8 +308,8 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
     const [activeTab, setActiveTab] = useState<'CORE' | 'VISUAL'>('CORE');
     const [previewEffect, setPreviewEffect] = useState<{effect: Effect, weapon: WeaponType} | null>(null);
+    const [hoveredStat, setHoveredStat] = useState<StatType | null>(null);
 
-    // Auto-update Role 
     useEffect(() => {
         const role = classifyHero(char);
         if (char.role !== role) {
@@ -303,7 +321,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
         }
     }, [char.stats]);
 
-    // Auto-calculate Avatar Color based on Theme Color
     useEffect(() => {
         if (char.appearance?.themeColor) {
             const contrast = generateContrastingColor(char.appearance.themeColor);
@@ -407,47 +424,68 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 />
             )}
 
-            <header className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 bg-slate-900 shrink-0">
+            {/* Global Hover Tooltip for Stats to avoid clipping */}
+            {hoveredStat && (
+                <div 
+                    className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] w-[600px] bg-slate-900 text-white border-4 border-slate-500 shadow-[0_0_20px_rgba(0,0,0,0.8)] pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-200"
+                >
+                    <div className="flex items-stretch">
+                        <div className="bg-slate-800 p-4 flex items-center justify-center border-r-4 border-slate-600">
+                             {getStatIcon(hoveredStat)}
+                        </div>
+                        <div className="p-4">
+                            <div className="font-bold text-yellow-400 mb-1 retro-font text-lg flex items-center gap-2">
+                                {hoveredStat}
+                            </div>
+                            <div className="text-slate-300 leading-relaxed font-mono text-sm">
+                                {STAT_DESCRIPTIONS[hoveredStat] || "暂无描述"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <header className="flex justify-between items-center mb-6 border-b-4 border-slate-700 pb-4 bg-slate-900 shrink-0">
                 <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-700">
-                        <ArrowLeft size={20} />
+                    <button onClick={onBack} className="pixel-btn pixel-btn-secondary border-2">
+                        <IconBack size={20} />
                     </button>
                     <input 
                         value={char.name} 
                         onChange={e => setChar({...char, name: e.target.value})}
-                        className="bg-transparent text-2xl font-bold border-b-2 border-transparent hover:border-slate-700 focus:border-blue-500 outline-none transition-all"
+                        className="bg-slate-950 text-2xl font-bold border-b-4 border-slate-700 focus:border-blue-500 outline-none transition-all px-2 py-1 retro-font"
                         placeholder="角色名称"
                     />
                     
-                    <div className="px-3 py-1 rounded bg-slate-800 border border-slate-600 text-xs font-mono text-slate-300">
+                    <div className="px-3 py-1 bg-slate-800 border-2 border-slate-600 text-xs font-mono text-slate-300">
                         {char.role ? getRoleDisplayName(char.role) : '未定级'}
                     </div>
                 </div>
                 <div className="flex gap-3">
-                    <button onClick={exportConfig} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm transition-all hover:shadow-lg">
-                        <Download size={16} /> 导出
+                    <button onClick={exportConfig} className="pixel-btn pixel-btn-secondary border-2">
+                        <IconDownload size={16} /> 导出
                     </button>
-                    <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/40">
-                        <Save size={16} /> 保存角色
+                    <button onClick={handleSave} className="pixel-btn pixel-btn-primary border-2">
+                        <IconSave size={16} /> 保存角色
                     </button>
                 </div>
             </header>
 
             {/* TABS */}
-            <div className="flex gap-4 mb-4 border-b border-slate-800 shrink-0">
+            <div className="flex gap-4 mb-4 border-b-4 border-slate-800 shrink-0">
                 <button 
                     onClick={() => setActiveTab('CORE')}
-                    className={`pb-2 px-4 font-bold text-sm transition-colors relative ${activeTab === 'CORE' ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    className={`pb-2 px-4 font-bold text-sm transition-colors relative flex items-center gap-2 ${activeTab === 'CORE' ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
                 >
-                    <div className="flex items-center gap-2"><Activity size={16}/> 核心配置 (属性 & 技能)</div>
-                    {activeTab === 'CORE' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-400"></div>}
+                    <IconBolt size={16}/> 核心配置
+                    {activeTab === 'CORE' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
                 </button>
                 <button 
                     onClick={() => setActiveTab('VISUAL')}
-                    className={`pb-2 px-4 font-bold text-sm transition-colors relative ${activeTab === 'VISUAL' ? 'text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    className={`pb-2 px-4 font-bold text-sm transition-colors relative flex items-center gap-2 ${activeTab === 'VISUAL' ? 'text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}
                 >
-                    <div className="flex items-center gap-2"><Shirt size={16}/> 外观定制</div>
-                    {activeTab === 'VISUAL' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-purple-400"></div>}
+                    <IconEye size={16}/> 外观定制
+                    {activeTab === 'VISUAL' && <div className="absolute bottom-0 left-0 w-full h-1 bg-purple-400"></div>}
                 </button>
             </div>
 
@@ -455,21 +493,23 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 
                 {/* --- CORE PANEL (Stats & Skills) --- */}
                 {activeTab === 'CORE' && (
-                <div className="w-full h-full flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="w-full h-full flex gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     
                     {/* COL 1: STATS (40%) */}
-                    <div className="w-[40%] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl min-w-[320px]">
-                        <div className="bg-slate-800/80 p-3 border-b border-slate-700 shadow-md z-10">
-                            <h3 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2"><Cpu size={14}/> 基础属性</h3>
-                            <div className="flex gap-2">
-                                <div className="flex-1 bg-slate-900/80 p-2 rounded border border-slate-700 flex flex-col items-center">
-                                    <span className="text-[10px] text-slate-400 uppercase">Fixed Points</span>
+                    <div className="w-[45%] flex flex-col pixel-border bg-slate-800 overflow-hidden min-w-[400px]">
+                        <div className="bg-slate-900 p-3 border-b-4 border-slate-700 z-10">
+                            <h3 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2 retro-font">
+                                <IconShield size={14}/> 基础属性
+                            </h3>
+                            <div className="flex gap-4">
+                                <div className="flex-1 bg-slate-950 p-2 border-2 border-slate-700 flex flex-col items-center">
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">Fixed Points</span>
                                     <div className={`text-sm font-mono font-bold ${usedBase > MAX_BASE_POINTS ? 'text-red-500' : 'text-white'}`}>
                                         {usedBase}/{MAX_BASE_POINTS}
                                     </div>
                                 </div>
-                                <div className="flex-1 bg-slate-900/80 p-2 rounded border border-slate-700 flex flex-col items-center">
-                                    <span className="text-[10px] text-slate-400 uppercase">Percent Points</span>
+                                <div className="flex-1 bg-slate-950 p-2 border-2 border-slate-700 flex flex-col items-center">
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">Percent Points</span>
                                     <div className={`text-sm font-mono font-bold ${usedPerc > MAX_PERCENT_POINTS ? 'text-red-500' : 'text-purple-400'}`}>
                                         {usedPerc}/{MAX_PERCENT_POINTS}%
                                     </div>
@@ -478,13 +518,13 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         </div>
 
                         {/* Grid Header */}
-                        <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-4 py-2 bg-slate-900/50 border-b border-slate-800">
+                        <div className="grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-2 bg-slate-900 border-b-4 border-slate-800">
                             <span className="text-[10px] text-slate-500 font-bold uppercase">属性 (Stat)</span>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">固定值</span>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">固定值 (Base)</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比 (%)</span>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-slate-900/50">
                             {Object.values(StatType)
                                 .filter(stat => !DYNAMIC_STATS.includes(stat)) 
                                 .map(stat => {
@@ -492,32 +532,38 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                 const isBaseOnly = ONLY_BASE_STATS.includes(stat);
                                 
                                 return (
-                                    <div key={stat} className="grid grid-cols-[1fr_80px_80px] gap-2 items-center bg-slate-900/40 p-1.5 rounded border border-slate-700/30 hover:border-slate-500/50 hover:bg-slate-800/60 transition-colors">
-                                        <label className={`text-[10px] font-bold truncate pl-2 ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
+                                    <div 
+                                        key={stat} 
+                                        className="group relative grid grid-cols-[1.5fr_1fr_1fr] gap-4 items-center bg-slate-800 p-2 border-2 border-slate-700 hover:border-blue-500 hover:bg-slate-700 transition-colors"
+                                        onMouseEnter={() => setHoveredStat(stat)}
+                                        onMouseLeave={() => setHoveredStat(null)}
+                                    >
+                                        <label className={`text-xs font-bold truncate pl-2 flex items-center gap-2 ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
+                                            {getStatIcon(stat)}
                                             {stat}
                                         </label>
                                         
                                         {!isPercentOnly ? (
                                             <input 
                                                 type="number" 
-                                                className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-1 text-center outline-none font-mono text-[10px] text-yellow-100 focus:border-blue-500"
+                                                className="w-full bg-slate-950 border-2 border-slate-600 p-2 text-center outline-none font-mono text-sm text-yellow-100 focus:border-blue-500 h-10"
                                                 value={char.stats.base[stat]}
                                                 onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
                                                 onFocus={(e) => e.target.select()}
                                                 min={0}
                                             />
-                                        ) : <div className="w-full h-full bg-slate-900/20 rounded border border-dashed border-slate-800"></div>}
+                                        ) : <div className="w-full h-10 bg-slate-900/50 border-2 border-dashed border-slate-800 opacity-50"></div>}
                                         
                                         {!isBaseOnly ? (
                                             <input 
                                                 type="number" 
-                                                className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-1 text-center outline-none font-mono text-[10px] text-purple-300 focus:border-purple-500"
+                                                className="w-full bg-slate-950 border-2 border-slate-600 p-2 text-center outline-none font-mono text-sm text-purple-300 focus:border-purple-500 h-10"
                                                 value={char.stats.percent[stat]}
                                                 onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
                                                 onFocus={(e) => e.target.select()}
                                                 min={0}
                                             />
-                                        ) : <div className="w-full h-full bg-slate-900/20 rounded border border-dashed border-slate-800"></div>}
+                                        ) : <div className="w-full h-10 bg-slate-900/50 border-2 border-dashed border-slate-800 opacity-50"></div>}
                                     </div>
                                 );
                             })}
@@ -525,17 +571,17 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                     </div>
 
                     {/* COL 2: SKILLS (60%) */}
-                    <div className="flex-1 flex flex-col bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden min-w-[300px]">
-                         <div className="flex justify-between items-center p-3 border-b border-slate-700 bg-slate-900/50 backdrop-blur z-10">
+                    <div className="flex-1 flex flex-col pixel-border bg-slate-800 overflow-hidden min-w-[300px]">
+                         <div className="flex justify-between items-center p-3 border-b-4 border-slate-700 bg-slate-900 z-10">
                             <h3 className="text-lg font-bold text-green-400 flex items-center gap-2 retro-font">
-                                <Cpu size={20} /> 技能逻辑
+                                <IconBolt size={20} /> 技能逻辑
                             </h3>
                             <button 
                                 onClick={addSkill} 
                                 disabled={char.skills.length >= 3}
-                                className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg font-bold transition-all shadow-lg ${char.skills.length >= 3 ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white hover:shadow-green-900/30'}`}
+                                className={`pixel-btn text-xs border-2 ${char.skills.length >= 3 ? 'bg-slate-700 text-slate-500 border-slate-800 cursor-not-allowed' : 'pixel-btn-success'}`}
                             >
-                                <Plus size={14} /> 新建
+                                <IconPlus size={14} /> 新建
                             </button>
                         </div>
 
@@ -557,8 +603,8 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             ))}
                             {char.skills.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-2">
-                                    <Cpu size={48} className="opacity-20"/>
-                                    <p>点击上方按钮添加技能</p>
+                                    <IconBolt size={48} className="opacity-20"/>
+                                    <p className="retro-font">点击上方按钮添加技能</p>
                                 </div>
                             )}
                         </div>
@@ -574,27 +620,27 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             <div className="text-xl font-bold text-white retro-font">形象卡片</div>
                             <div className="relative">
                                 {/* Using HeroAvatar as the static visual representation */}
-                                <div className="p-1 rounded-xl shadow-2xl bg-gradient-to-br from-slate-700 to-slate-800 border-2 border-slate-600">
-                                    <div className="overflow-hidden rounded-lg border border-slate-900/50 shadow-inner">
+                                <div className="p-2 rounded-none shadow-[8px_8px_0_0_rgba(0,0,0,0.5)] bg-slate-800 border-4 border-slate-600">
+                                    <div className="overflow-hidden border-2 border-slate-900">
                                         <HeroAvatar appearance={char.appearance} size={256} bgColor={char.avatarColor} />
                                     </div>
                                 </div>
                                 
-                                <div className="absolute -bottom-4 -right-4 bg-slate-900 border border-slate-700 rounded px-3 py-1 text-xs text-slate-400 shadow-lg">
+                                <div className="absolute -bottom-6 -right-4 bg-slate-900 border-2 border-slate-700 px-3 py-1 text-xs text-slate-400 shadow-lg font-mono">
                                     背景自动计算
                                 </div>
                             </div>
                         </div>
 
                         {/* Controls */}
-                        <div className="flex-1 bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-                            <h3 className="text-lg font-bold text-purple-400 mb-6 flex items-center gap-2">
-                                <Palette size={20}/> 个性化定制
+                        <div className="flex-1 pixel-border bg-slate-800 p-6">
+                            <h3 className="text-lg font-bold text-purple-400 mb-6 flex items-center gap-2 retro-font">
+                                <IconEdit size={20}/> 个性化定制
                             </h3>
 
                             <div className="space-y-6">
                                 {/* Separated Color Pickers */}
-                                <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-700">
+                                <div className="p-4 bg-slate-900 border-2 border-slate-700">
                                     <div className="flex flex-col gap-2">
                                         <label className="text-sm font-bold text-slate-300">装备配色 (Theme)</label>
                                         <div className="flex items-center gap-4">
@@ -602,7 +648,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                                 type="color" 
                                                 value={char.appearance.themeColor}
                                                 onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, themeColor: e.target.value } })}
-                                                className="w-12 h-10 rounded cursor-pointer border-none bg-transparent"
+                                                className="w-12 h-10 border-2 border-slate-500 cursor-pointer bg-slate-800 p-1"
                                             />
                                             <span className="font-mono text-slate-400">{char.appearance.themeColor}</span>
                                         </div>
@@ -614,9 +660,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
                                 <div className="grid grid-cols-2 gap-6">
                                     <div className="space-y-2">
-                                        <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><Eye size={16}/> 头部外观</label>
+                                        <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><IconSkull size={16}/> 头部外观</label>
                                         <select 
-                                            className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:border-purple-500"
+                                            className="w-full bg-slate-900 border-2 border-slate-600 p-2 text-white outline-none focus:border-purple-500 font-mono h-10"
                                             value={char.appearance.head}
                                             onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, head: e.target.value as HeadType } })}
                                         >
@@ -631,9 +677,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><Shirt size={16}/> 身体护甲</label>
+                                        <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><IconShield size={16}/> 身体护甲</label>
                                         <select 
-                                            className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:border-purple-500"
+                                            className="w-full bg-slate-900 border-2 border-slate-600 p-2 text-white outline-none focus:border-purple-500 font-mono h-10"
                                             value={char.appearance.body}
                                             onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, body: e.target.value as BodyType } })}
                                         >
@@ -645,9 +691,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><Sword size={16}/> 武器类型</label>
+                                        <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><IconSword size={16}/> 武器类型</label>
                                         <select 
-                                            className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:border-purple-500"
+                                            className="w-full bg-slate-900 border-2 border-slate-600 p-2 text-white outline-none focus:border-purple-500 font-mono h-10"
                                             value={char.appearance.weapon}
                                             onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, weapon: e.target.value as WeaponType } })}
                                         >
@@ -741,15 +787,15 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
     };
 
     return (
-        <div className="bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-lg hover:border-slate-600 transition-all group">
+        <div className="bg-slate-900 pixel-border hover:border-slate-500 transition-all group">
             {/* ... Header ... */}
-            <div className="bg-slate-800 p-3 flex items-center gap-3 border-b border-slate-700">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center shadow-inner shrink-0">
-                    <Zap size={16} className="text-white" />
+            <div className="bg-slate-800 p-3 flex items-center gap-3 border-b-2 border-slate-700">
+                <div className="w-8 h-8 bg-green-600 border-2 border-green-800 flex items-center justify-center shrink-0">
+                    <IconBolt size={16} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
                      <input 
-                        className="bg-transparent font-bold outline-none text-sm w-full placeholder-slate-500 focus:text-blue-300 transition-colors"
+                        className="bg-slate-900 border-b-2 border-slate-700 font-bold outline-none text-sm w-full placeholder-slate-500 focus:border-blue-400 focus:text-blue-300 transition-colors py-1"
                         value={skill.name}
                         onChange={(e) => onChange({...skill, name: e.target.value})}
                         placeholder="未命名技能"
@@ -757,7 +803,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                     <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-slate-400 uppercase tracking-wider">消耗</span>
+                        <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">COST</span>
                         <div className="flex items-center gap-1">
                             <span className={`font-mono font-bold text-sm ${manaCost > 1000 ? 'text-red-500 animate-pulse' : manaCost > 100 ? 'text-red-400' : 'text-blue-400'}`}>
                                 {manaCost}
@@ -765,10 +811,10 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                             {isDynamic && <span className="text-[10px] text-yellow-400 font-bold">+</span>}
                         </div>
                     </div>
-                    <div className="h-6 w-[1px] bg-slate-700"></div>
+                    <div className="h-6 w-[2px] bg-slate-700"></div>
                     <label className="flex items-center gap-2 cursor-pointer select-none group/toggle" title={skill.isPassive ? "被动" : "主动"}>
-                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${skill.isPassive ? 'bg-blue-600' : 'bg-slate-700'}`}>
-                            <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${skill.isPassive ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                        <div className={`w-10 h-6 border-2 flex items-center px-1 transition-colors ${skill.isPassive ? 'bg-blue-600 border-blue-800' : 'bg-slate-700 border-slate-600'}`}>
+                            <div className={`w-3 h-3 bg-white transition-transform ${skill.isPassive ? 'translate-x-4' : 'translate-x-0'}`}></div>
                         </div>
                         <input 
                             type="checkbox" 
@@ -777,13 +823,13 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                             onChange={(e) => onChange({...skill, isPassive: e.target.checked})} 
                         />
                     </label>
-                    <button onClick={onDelete} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-all">
-                        <Trash2 size={14} />
+                    <button onClick={onDelete} className="text-slate-500 hover:text-red-400 transition-all">
+                        <IconTrash size={16} />
                     </button>
                 </div>
             </div>
             
-            <div className="p-3 space-y-3 bg-slate-900/50">
+            <div className="p-3 space-y-3 bg-slate-900">
                 {/* Logic Branches */}
                 {skill.logic.map((branch, i) => {
                     const visual = branch.effect.visual || { color: '#ffffff', shape: 'CIRCLE', animationType: 'CAST' };
@@ -791,40 +837,40 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                     const isWeaponAnim = visual.animationType === 'THRUST' || visual.animationType === 'THROW';
 
                     return (
-                    <div key={i} className="relative bg-slate-950/80 rounded-lg border border-slate-800 shadow-sm overflow-hidden hover:border-slate-700 transition-all">
-                         <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-yellow-500 to-green-500"></div>
+                    <div key={i} className="relative bg-slate-950 border-2 border-slate-800 hover:border-slate-600 transition-all">
+                         <div className="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-b from-yellow-500 to-green-500"></div>
                          
                          {/* Header / Toolbar */}
-                         <div className="flex justify-between items-center px-3 py-1.5 border-b border-slate-900 bg-slate-900/50">
-                            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-2">
+                         <div className="flex justify-between items-center px-3 py-1.5 border-b-2 border-slate-900 bg-slate-900">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-2 ml-2">
                                 BLOCK #{i + 1}
                             </span>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => onPreview(branch.effect)}
-                                    className="text-[9px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors bg-blue-900 text-blue-300 hover:bg-blue-800"
+                                    className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 border border-blue-900 transition-colors bg-blue-950 text-blue-300 hover:bg-blue-900"
                                 >
-                                    <Sparkles size={10}/> 预览特效
+                                    <IconPlay size={10}/> 预览
                                 </button>
                                 <button 
-                                    className="text-slate-600 hover:text-red-400 p-0.5 rounded hover:bg-red-950/30 transition-all"
+                                    className="text-slate-600 hover:text-red-400 p-0.5 transition-all"
                                     onClick={() => {
                                         const nl = [...skill.logic];
                                         nl.splice(i, 1);
                                         onChange({...skill, logic: nl});
                                     }}
                                 >
-                                    <Trash2 size={12}/>
+                                    <IconX size={12}/>
                                 </button>
                             </div>
                          </div>
 
-                         <div className="p-2 grid gap-2">
+                         <div className="p-2 grid gap-2 ml-2">
                             {/* IF / THEN Logic */}
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <button 
                                     onClick={() => toggleCondition(i)}
-                                    className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded transition-colors ${branch.condition ? 'bg-yellow-950 text-yellow-500 border border-yellow-800' : 'bg-slate-800 text-slate-500 border border-slate-700 hover:bg-yellow-900/30 hover:text-yellow-400'}`}
+                                    className={`text-[10px] font-mono font-bold px-1.5 py-1 border-2 transition-colors ${branch.condition ? 'bg-yellow-900 text-yellow-500 border-yellow-700' : 'bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700'}`}
                                 >
                                     IF
                                 </button>
@@ -875,9 +921,9 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                             </div>
 
                             {/* THEN Effect */}
-                            <div className="flex flex-wrap items-center gap-1.5 pl-4 relative">
-                                <div className="absolute left-1 top-1/2 -translate-y-1/2 w-2 h-2 border-l border-b border-slate-800 rounded-bl"></div>
-                                <span className="text-green-600 font-mono text-[10px] font-bold px-1.5 py-0.5 bg-green-950/20 border border-green-900/50 rounded">DO</span>
+                            <div className="flex flex-wrap items-center gap-1.5 pl-4 relative border-l-2 border-slate-800 ml-2">
+                                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-0.5 bg-slate-800"></div>
+                                <span className="text-green-600 font-mono text-[10px] font-bold px-1.5 py-0.5 bg-green-950/20 border border-green-900/50">DO</span>
                                 
                                 <select 
                                     className={styles.action}
@@ -931,7 +977,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                                 <div className="flex flex-wrap items-center gap-1.5 mt-1 sm:mt-0">
                                     <span className="text-[10px] text-slate-500 font-mono">=</span>
                                     {/* Formula Left */}
-                                    <div className="flex items-center bg-slate-900/50 rounded border border-slate-800 px-1 py-0.5">
+                                    <div className="flex items-center bg-slate-900 border-2 border-slate-700 px-1 py-0.5">
                                         <select 
                                             className="bg-transparent text-indigo-300 text-[10px] font-mono outline-none appearance-none cursor-pointer hover:text-white"
                                             value={branch.effect.formula.factorA.target}
@@ -976,7 +1022,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                                     </select>
 
                                     {/* Formula Right */}
-                                    <div className="flex items-center bg-slate-900/50 rounded border border-slate-800 px-1 py-0.5">
+                                    <div className="flex items-center bg-slate-900 border-2 border-slate-700 px-1 py-0.5">
                                         <select 
                                             className="bg-transparent text-indigo-300 text-[10px] font-mono outline-none appearance-none cursor-pointer hover:text-white"
                                             value={branch.effect.formula.factorB.target}
@@ -1009,14 +1055,14 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                             {/* Compact Visual Config */}
                             <button 
                                 onClick={() => setExpandedVisual(expandedVisual === i ? null : i)}
-                                className={`text-[10px] text-left px-2 py-1 rounded border border-dashed flex justify-between items-center ${expandedVisual === i ? 'bg-slate-800 border-slate-600 text-slate-300' : 'bg-slate-900/30 border-slate-800 text-slate-600 hover:text-slate-400'}`}
+                                className={`text-[10px] text-left px-2 py-1 border-2 border-dashed flex justify-between items-center ${expandedVisual === i ? 'bg-slate-800 border-slate-500 text-slate-300' : 'bg-slate-900 border-slate-800 text-slate-600 hover:text-slate-400'}`}
                             >
                                 <span>视觉配置: {visual.animationType || 'CAST'} {isDamage && !isWeaponAnim ? `+ ${visual.shape}` : ''}</span>
                                 <span className="opacity-50">{expandedVisual === i ? '收起' : '展开'}</span>
                             </button>
 
                             {expandedVisual === i && (
-                                <div className="pl-2 pr-2 pb-2 bg-slate-900/50 rounded border border-slate-800 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <div className="pl-2 pr-2 pb-2 bg-slate-950 border-2 border-slate-700 animate-in fade-in slide-in-from-top-1 duration-200">
                                     <div className="grid grid-cols-2 gap-4 mt-2">
                                         <div className="flex flex-col gap-1">
                                             <label className="text-[10px] text-slate-500">动作类型</label>
@@ -1038,7 +1084,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                                                     type="color" 
                                                     value={visual.color}
                                                     onChange={(e) => updateVisual(i, { color: e.target.value })}
-                                                    className="w-full h-5 rounded cursor-pointer border-none bg-transparent"
+                                                    className="w-full h-5 cursor-pointer border-2 border-slate-500 bg-slate-800 p-0.5"
                                                 />
                                             </div>
                                         </div>
@@ -1060,7 +1106,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                                             </div>
                                         )}
                                         {isWeaponAnim && (
-                                            <div className="col-span-2 text-[10px] text-slate-500 italic p-1 bg-slate-800/50 rounded border border-slate-700">
+                                            <div className="col-span-2 text-[10px] text-slate-500 italic p-1 bg-slate-800 border border-slate-700">
                                                 使用当前武器模型进行攻击动画
                                             </div>
                                         )}
@@ -1074,9 +1120,9 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                 {skill.logic.length < 3 ? (
                     <button 
                         onClick={addBranch}
-                        className="w-full py-2 border-2 border-dashed border-slate-800 rounded-lg text-slate-500 text-xs hover:text-blue-400 hover:border-blue-500/50 hover:bg-blue-950/20 transition-all flex items-center justify-center gap-2"
+                        className="w-full py-2 border-2 border-dashed border-slate-700 text-slate-500 text-xs hover:text-blue-400 hover:border-blue-500 hover:bg-blue-900/20 transition-all flex items-center justify-center gap-2 font-bold"
                     >
-                        <Plus size={14}/> 添加逻辑 ({skill.logic.length}/3)
+                        <IconPlus size={14}/> 添加逻辑 ({skill.logic.length}/3)
                     </button>
                 ) : (
                     <div className="text-center text-[10px] text-slate-600 py-1">

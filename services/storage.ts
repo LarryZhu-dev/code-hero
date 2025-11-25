@@ -1,7 +1,9 @@
+
 import { CharacterConfig, Skill, Effect, INITIAL_STATS, StatType } from "../types";
 
 const STORAGE_KEY = 'cw_heroes_v1';
 const DELETED_DEFAULTS_KEY = 'cw_deleted_defaults';
+const LAST_HERO_KEY = 'cw_last_hero_id';
 
 // Migration helper for v1 stat name changes & Skill Logic Structure
 const migrateCharacter = (char: CharacterConfig): CharacterConfig => {
@@ -280,5 +282,13 @@ export const StorageService = {
 
     get: (id: string): CharacterConfig | undefined => {
         return StorageService.getAll().find(c => c.id === id);
+    },
+
+    saveLastUsed: (id: string) => {
+        localStorage.setItem(LAST_HERO_KEY, id);
+    },
+
+    getLastUsed: (): string | null => {
+        return localStorage.getItem(LAST_HERO_KEY);
     }
 };

@@ -26,6 +26,24 @@ export enum StatType {
     CURRENT_MANA = '当前法力值',
 }
 
+export const STAT_DESCRIPTIONS: Partial<Record<StatType, string>> = {
+    [StatType.HP]: '决定角色的生存能力，归零时战败。',
+    [StatType.MANA]: '释放技能所需的能量资源。',
+    [StatType.AD]: '物理伤害的基础数值，影响普通攻击和物理技能。',
+    [StatType.AP]: '法术强度的基础数值，影响魔法技能伤害。',
+    [StatType.ARMOR]: '减少受到的物理伤害。',
+    [StatType.MR]: '减少受到的魔法伤害。',
+    [StatType.SPEED]: '决定战斗开始时的先后手顺序，速度高者先行动。',
+    [StatType.CRIT_RATE]: '攻击造成额外暴击伤害的概率。',
+    [StatType.CRIT_DMG]: '暴击时造成的额外伤害倍率（基础为150%）。',
+    [StatType.LIFESTEAL]: '普通攻击造成的物理伤害会按比例治疗自身。',
+    [StatType.OMNIVAMP]: '造成的任意伤害（物理/魔法）都会按比例治疗自身。',
+    [StatType.ARMOR_PEN_FLAT]: '无视目标固定数值的护甲。',
+    [StatType.MAGIC_PEN_FLAT]: '无视目标固定数值的魔抗。',
+    [StatType.TENACITY]: '减少受到的控制效果持续时间（暂未实装）。',
+    [StatType.MANA_REGEN]: '每回合回复法力值的百分比。',
+};
+
 // Stats that are calculated dynamically and should not be edited in the character stats panel
 export const DYNAMIC_STATS = [
     StatType.CURRENT_HP,

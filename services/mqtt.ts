@@ -1,5 +1,4 @@
 
-
 import mqtt from 'mqtt';
 import { BattleState, CharacterConfig } from '../types';
 
@@ -20,14 +19,18 @@ export class NetworkService {
     roomId: string = '';
     playerId: string = '';
     onMessage: MessageHandler = () => {};
+    isPublicHall: boolean = false;
 
     constructor() {
         this.playerId = generateId().slice(0, 8);
     }
 
-    connect(roomId: string, onMessage: MessageHandler, onConnect?: () => void) {
+    connect(roomId: string, onMessage: MessageHandler, onConnect?: () => void, isPublicHall: boolean = false) {
+        this.disconnect(); // Ensure previous connection is closed
+
         this.roomId = roomId;
         this.onMessage = onMessage;
+        this.isPublicHall = isPublicHall;
 
         // Reuse ID for reconnection stability
         this.client = mqtt.connect(BROKER_URL, {
@@ -44,11 +47,14 @@ export class NetworkService {
         });
 
         this.client.on('connect', () => {
-            console.log('Connected to MQTT Broker');
+            console.log(`Connected to MQTT Broker [${roomId}]`);
             this.client?.subscribe(`cw/room/${roomId}/#`, (err) => {
                 if (!err) {
-                    this.publish('join', { id: this.playerId });
-                    // Notify caller that we are ready to send messages
+                    if (isPublicHall) {
+                        this.publish('presence_request', {}); // Ask who is here
+                    } else {
+                        this.publish('join', { id: this.playerId });
+                    }
                     if (onConnect) onConnect();
                 }
             });
@@ -89,9 +95,12 @@ export class NetworkService {
             this.publish('leave', { id: this.playerId });
             this.client.end();
             this.client = null;
+            this.roomId = '';
+            this.isPublicHall = false;
         }
     }
     
+    // Battle / Lobby Methods
     sendState(state: BattleState) {
         this.publish('sync_state', { state });
     }
@@ -106,6 +115,19 @@ export class NetworkService {
 
     sendRematch() {
         this.publish('rematch_request', {});
+    }
+
+    // Public Hall Methods
+    announcePresence(playerInfo: { name: string, char: CharacterConfig, status: string }) {
+        this.publish('presence', playerInfo);
+    }
+
+    sendChallenge(targetId: string, challengerName: string) {
+        this.publish('challenge', { targetId, challengerName });
+    }
+
+    respondChallenge(targetId: string, accept: boolean, privateRoomId?: string) {
+        this.publish('challenge_response', { targetId, accept, privateRoomId });
     }
 }
 

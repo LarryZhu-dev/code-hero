@@ -38,7 +38,7 @@ const safeDestroy = (app: PIXI.Application | undefined | null) => {
     if (!app) return;
     try {
         if (app.renderer) {
-            app.destroy({ removeView: true, texture: true, context: true });
+            app.destroy({ removeView: true });
         } else {
             console.warn("PIXI Cleanup: Skipping destroy() because renderer is missing.");
         }
@@ -65,28 +65,18 @@ const getPixiApp = async () => {
             return await w.__CW_PIXI_INIT_PROMISE__;
         } catch (e) {
             w.__CW_PIXI_INIT_PROMISE__ = null;
+            w.__CW_PIXI_APP__ = null;
+            throw e;
         }
     }
 
     w.__CW_PIXI_INIT_PROMISE__ = (async () => {
         const app = new PIXI.Application();
-        try {
-            await app.init({ 
-                width: 800, 
-                height: 400, 
-                backgroundColor: 0x0f172a, // Slate-900
-                antialias: false,
-            });
-            w.__CW_PIXI_APP__ = app;
-            return app;
-        } catch (e) {
-            console.error("Failed to init PIXI App", e);
-            w.__CW_PIXI_INIT_PROMISE__ = null;
-            w.__CW_PIXI_APP__ = null;
-            safeDestroy(app);
-            throw e;
-        }
+        await app.init({ width: 800, height: 400, backgroundColor: 0x1e293b, antialias: false });
+        w.__CW_PIXI_APP__ = app;
+        return app;
     })();
+
     return w.__CW_PIXI_INIT_PROMISE__;
 };
 
@@ -813,7 +803,8 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                         await new Promise(r => setTimeout(r, 30));
                     }
                     target.container.x = baseX;
-                    target.graphics.tint = 0xffffff;
+                    target.graphics.tint = 0xff0000;
+                    setTimeout(() => { target.graphics.tint = 0xffffff; }, 100);
                 }
                 else if (evt.type === 'HEAL' && target) {
                     if (evt.value) target.targetHp += evt.value;
