@@ -304,6 +304,7 @@ export const processSkill = (
         pushEvent({ 
             type: 'SKILL_EFFECT', 
             sourceId: caster.id, 
+            targetId: target.id,
             skillName: skill.name,
             text: `${caster.config.name} 释放了 ${skill.name}`,
             visual: skill.logic[0]?.effect.visual // Use first block visual for main cast anim

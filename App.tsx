@@ -557,10 +557,12 @@ const App: React.FC = () => {
                         triggeredSkillIds.add(uniqueTriggerKey);
                         // Add visual floating text for passive
                         pushEvent({ 
-                        type: 'SKILL_EFFECT', 
-                        sourceId: entity.id, 
-                        skillName: s.name,
-                        text: undefined 
+                            type: 'SKILL_EFFECT', 
+                            sourceId: entity.id, 
+                            targetId: enemyOfEntity.id,
+                            skillName: s.name,
+                            text: undefined,
+                            visual: s.logic[0]?.effect.visual
                         });
                         pushEvent({ type: 'TEXT', text: `[被动] ${entity.config.name} 触发 ${s.name}`});
                     }
