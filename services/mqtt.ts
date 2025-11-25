@@ -25,6 +25,10 @@ export class NetworkService {
         this.playerId = generateId().slice(0, 8);
     }
 
+    isConnected(): boolean {
+        return this.client?.connected || false;
+    }
+
     connect(roomId: string, onMessage: MessageHandler, onConnect?: () => void, isPublicHall: boolean = false) {
         this.disconnect(); // Ensure previous connection is closed
 

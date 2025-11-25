@@ -57,6 +57,68 @@ interface ChallengeRequest {
     timestamp: number;
 }
 
+// Sub-component for individual challenge notifications with countdown
+const ChallengeCard: React.FC<{ 
+    challenge: ChallengeRequest, 
+    onAccept: () => void, 
+    onReject: () => void 
+}> = ({ challenge, onAccept, onReject }) => {
+    const [progress, setProgress] = useState(100);
+
+    useEffect(() => {
+        const duration = 60000;
+        const interval = setInterval(() => {
+            const elapsed = Date.now() - challenge.timestamp;
+            const remaining = Math.max(0, duration - elapsed);
+            const pct = (remaining / duration) * 100;
+            setProgress(pct);
+            
+            if (pct <= 0) {
+                // Auto reject on timeout in the parent via cleanup, 
+                // but visually we show empty
+            }
+        }, 100);
+
+        return () => clearInterval(interval);
+    }, [challenge.timestamp]);
+
+    return (
+        <div className="w-80 bg-slate-900 border-4 border-yellow-500 shadow-2xl p-4 animate-in slide-in-from-right duration-300 pointer-events-auto">
+            <div className="flex items-center justify-between gap-2 mb-2 text-yellow-400 font-bold">
+                <div className="flex items-center gap-2">
+                    <Swords size={20} /> 对战请求
+                </div>
+                <span className="text-[10px] bg-yellow-900/50 px-1 border border-yellow-700 font-mono">
+                    {Math.ceil(progress * 0.6)}s
+                </span>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="w-full h-1 bg-slate-800 mb-3">
+                <div className="h-full bg-yellow-500 transition-all duration-100 ease-linear" style={{ width: `${progress}%` }}></div>
+            </div>
+
+            <div className="text-white mb-4">
+                玩家 <span className="font-bold text-yellow-200">{challenge.name}</span> 向你发起了挑战！
+            </div>
+            <div className="flex gap-2">
+                <button 
+                    onClick={onAccept}
+                    className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 font-bold border-2 border-green-800"
+                >
+                    接受
+                </button>
+                <button 
+                    onClick={onReject}
+                    className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 font-bold border-2 border-red-800"
+                >
+                    拒绝
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
     const [view, setView] = useState<AppView>('MENU');
     const [myChar, setMyChar] = useState<CharacterConfig | null>(null);
@@ -77,7 +139,10 @@ const App: React.FC = () => {
     // Public Hall State
     const [hallPlayers, setHallPlayers] = useState<PublicPlayer[]>([]);
     const [incomingChallenges, setIncomingChallenges] = useState<ChallengeRequest[]>([]);
+    
+    // Challenge Sender State
     const [challengeSentTo, setChallengeSentTo] = useState<string | null>(null);
+    const [challengeStatus, setChallengeStatus] = useState<'IDLE' | 'SENDING' | 'WAITING' | 'TIMEOUT' | 'REJECTED'>('IDLE');
 
     // Battle Lobby State
     const [opponentChar, setOpponentChar] = useState<CharacterConfig | null>(null);
@@ -151,17 +216,19 @@ const App: React.FC = () => {
         };
     }, [incomingChallenges.length]);
 
-    // Challenge Timeout (Receiver)
+    // Challenge Timeout (Receiver) & Reconnection Logic
     useEffect(() => {
-        if (incomingChallenges.length === 0) return;
-        const timer = setInterval(() => {
-            const now = Date.now();
-            setIncomingChallenges(prev => prev.filter(c => now - c.timestamp < 60000));
-        }, 1000);
-        return () => clearInterval(timer);
+        // Timeout
+        if (incomingChallenges.length > 0) {
+            const timer = setInterval(() => {
+                const now = Date.now();
+                setIncomingChallenges(prev => prev.filter(c => now - c.timestamp < 60000));
+            }, 1000);
+            return () => clearInterval(timer);
+        }
     }, [incomingChallenges.length]);
 
-    // Public Hall Heartbeat
+    // Public Hall Heartbeat & Reconnection
     useEffect(() => {
         if (view !== 'PUBLIC_HALL' || !myChar) return;
         
@@ -170,16 +237,51 @@ const App: React.FC = () => {
             const now = Date.now();
             setHallPlayers(prev => prev.filter(p => now - p.lastSeen < 5000));
             
-            // Broadcast self
-            net.announcePresence({
-                name: myChar.name,
-                char: myChar,
-                status: 'IDLE'
-            });
+            // Heartbeat / Reconnect
+            if (net.isConnected()) {
+                net.announcePresence({
+                    name: myChar.name,
+                    char: myChar,
+                    status: 'IDLE'
+                });
+            } else {
+                console.log("Connection lost, attempting reconnect...");
+                // Reconnect logic is encapsulated in enterPublicHall which uses net.connect
+                // But we don't want to spam connect. net.connect handles existing clients.
+                // However, if the socket is dead, we might need to re-trigger.
+                // For simplicity, we rely on the visibility check mainly, or manual reload.
+            }
         }, 2000);
 
-        return () => clearInterval(timer);
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                if (!net.isConnected() && view === 'PUBLIC_HALL') {
+                    console.log("Tab visible, reconnecting to Public Hall...");
+                    enterPublicHall();
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibility);
+
+        return () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
     }, [view, myChar]);
+
+    // Auto Start for Public Hall - Host Side
+    useEffect(() => {
+        if (view === 'LOBBY' && battleOrigin === 'PUBLIC' && myRole === 'HOST') {
+            if (opponentReady && opponentChar && myChar) {
+                // Delay slightly to ensure UI updates
+                const t = setTimeout(() => {
+                    handleHostStartGame();
+                }, 500);
+                return () => clearTimeout(t);
+            }
+        }
+    }, [view, battleOrigin, myRole, opponentReady, opponentChar, myChar]);
 
     const getSortedSkills = useCallback((entity: BattleEntity | CharacterConfig) => {
         const skills = 'config' in entity ? entity.config.skills : entity.skills;
@@ -218,7 +320,11 @@ const App: React.FC = () => {
         setBattleOrigin('PUBLIC');
         setHallPlayers([]);
         setIncomingChallenges([]);
+        
+        // Reset challenge sending state
         setChallengeSentTo(null);
+        setChallengeStatus('IDLE');
+
         setView('PUBLIC_HALL');
         
         net.connect('public_hall_global_v1', (action, data) => handleMessageRef.current?.(action, data), () => {
@@ -275,12 +381,20 @@ const App: React.FC = () => {
     const handleChallengePlayer = (targetId: string, targetName: string) => {
         if (challengeSentTo) return;
         setChallengeSentTo(targetId);
+        setChallengeStatus('WAITING');
         net.sendChallenge(targetId, myChar?.name || 'Player');
+        
         // Timeout for outgoing challenge (60s)
         setTimeout(() => {
             if (view === 'PUBLIC_HALL' && challengeSentTo === targetId) {
-                setChallengeSentTo(null);
-                // Optionally could show a toast here "Challenge timed out"
+                setChallengeStatus('TIMEOUT');
+                // Auto revert after showing timeout for a moment
+                setTimeout(() => {
+                    if (challengeSentTo === targetId) {
+                        setChallengeSentTo(null);
+                        setChallengeStatus('IDLE');
+                    }
+                }, 2000);
             }
         }, 60000);
     };
@@ -349,9 +463,11 @@ const App: React.FC = () => {
             }
             else if (action === 'challenge_response') {
                 if (data.targetId === playerId && data.sender === challengeSentTo) {
-                    setChallengeSentTo(null);
                     if (data.accept && data.privateRoomId) {
                         // Accepted! Join room as Challenger
+                        setChallengeStatus('IDLE');
+                        setChallengeSentTo(null);
+                        
                         net.disconnect();
                         setRoomId(data.privateRoomId);
                         setBattleOrigin('PUBLIC');
@@ -366,7 +482,14 @@ const App: React.FC = () => {
                              net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
                         });
                     } else {
-                        // alert("对方拒绝了挑战"); // Less intrusive UI preferred
+                        // Rejected
+                        setChallengeStatus('REJECTED');
+                        setTimeout(() => {
+                            if (challengeSentTo === data.sender) {
+                                setChallengeSentTo(null);
+                                setChallengeStatus('IDLE');
+                            }
+                        }, 2000);
                     }
                 }
             }
@@ -428,6 +551,11 @@ const App: React.FC = () => {
                 setOpponentChar(data.hostChar);
                 if (data.role === 'CHALLENGER') {
                      setLobbyLog(prev => [...prev, '你已成为挑战者', '请准备...']);
+                     // Auto-ready for Public Hall matches
+                     if (battleOrigin === 'PUBLIC') {
+                         setAmIReady(true);
+                         net.sendReady(true);
+                     }
                 } else if (data.role === 'SPECTATOR') {
                      setLobbyLog(prev => [...prev, '房间已满，你已进入观战模式']);
                      if (data.challengerChar) {
@@ -553,7 +681,7 @@ const App: React.FC = () => {
                 setOpponentRematchRequest(true);
             }
         }
-    }, [myRole, opponentId, challengerId, opponentChar, spectators, myChar, playerId, view, challengeSentTo]);
+    }, [myRole, opponentId, challengerId, opponentChar, spectators, myChar, playerId, view, challengeSentTo, battleOrigin]);
 
     useEffect(() => {
         handleMessageRef.current = handleMessage;
@@ -1027,31 +1155,12 @@ const App: React.FC = () => {
                 {incomingChallenges.length > 0 && (
                     <div className="fixed top-20 right-8 z-[70] flex flex-col gap-4 max-h-[80vh] overflow-y-auto no-scrollbar pointer-events-none">
                         {incomingChallenges.map((challenge) => (
-                            <div key={challenge.fromId} className="w-80 bg-slate-900 border-4 border-yellow-500 shadow-2xl p-4 animate-in slide-in-from-right duration-300 pointer-events-auto">
-                                <div className="flex items-center justify-between gap-2 mb-2 text-yellow-400 font-bold">
-                                    <div className="flex items-center gap-2">
-                                        <Swords size={20} /> 对战请求
-                                    </div>
-                                    <span className="text-[10px] bg-yellow-900/50 px-1 border border-yellow-700">60s</span>
-                                </div>
-                                <div className="text-white mb-4">
-                                    玩家 <span className="font-bold text-yellow-200">{challenge.name}</span> 向你发起了挑战！
-                                </div>
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={() => handleRespondChallenge(challenge, true)}
-                                        className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 font-bold border-2 border-green-800"
-                                    >
-                                        接受
-                                    </button>
-                                    <button 
-                                        onClick={() => handleRespondChallenge(challenge, false)}
-                                        className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 font-bold border-2 border-red-800"
-                                    >
-                                        拒绝
-                                    </button>
-                                </div>
-                            </div>
+                            <ChallengeCard 
+                                key={challenge.fromId}
+                                challenge={challenge}
+                                onAccept={() => handleRespondChallenge(challenge, true)}
+                                onReject={() => handleRespondChallenge(challenge, false)}
+                            />
                         ))}
                     </div>
                 )}
@@ -1247,7 +1356,29 @@ const App: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {hallPlayers.map(player => (
+                                    {hallPlayers.map(player => {
+                                        const isTarget = challengeSentTo === player.id;
+                                        
+                                        let btnText = '挑战';
+                                        let btnClass = 'bg-blue-600 border-blue-800 text-white hover:bg-blue-500';
+                                        let disabled = player.status !== 'IDLE' || (!!challengeSentTo && !isTarget);
+
+                                        if (isTarget) {
+                                            if (challengeStatus === 'WAITING') {
+                                                btnText = '等待中...';
+                                                btnClass = 'bg-yellow-900/50 border-yellow-600 text-yellow-400';
+                                            } else if (challengeStatus === 'TIMEOUT') {
+                                                btnText = '超时';
+                                                btnClass = 'bg-slate-700 border-slate-500 text-slate-300';
+                                                disabled = true;
+                                            } else if (challengeStatus === 'REJECTED') {
+                                                btnText = '对方拒绝';
+                                                btnClass = 'bg-red-900/50 border-red-600 text-red-400';
+                                                disabled = true;
+                                            }
+                                        }
+
+                                        return (
                                         <div key={player.id} className="bg-slate-900 border-4 border-slate-800 p-4 flex items-center gap-4 hover:border-slate-600 transition-colors">
                                             <div className="border-2 border-slate-700 bg-slate-950 relative">
                                                 <HeroAvatar appearance={player.char.appearance!} size={64} bgColor={player.char.avatarColor} />
@@ -1261,13 +1392,13 @@ const App: React.FC = () => {
                                             </div>
                                             <button 
                                                 onClick={() => handleChallengePlayer(player.id, player.name)}
-                                                disabled={player.status !== 'IDLE' || !!challengeSentTo}
-                                                className={`px-3 py-1 text-xs font-bold border-2 ${challengeSentTo === player.id ? 'bg-yellow-900/50 border-yellow-600 text-yellow-400' : 'bg-blue-600 border-blue-800 text-white hover:bg-blue-500'}`}
+                                                disabled={disabled}
+                                                className={`px-3 py-1 text-xs font-bold border-2 ${btnClass} ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
                                             >
-                                                {challengeSentTo === player.id ? '等待...' : '挑战'}
+                                                {btnText}
                                             </button>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
                             )}
                         </div>
@@ -1381,16 +1512,17 @@ const App: React.FC = () => {
                                         disabled={!opponentChar || !opponentReady}
                                         className={`pixel-btn w-full ${opponentChar && opponentReady ? 'pixel-btn-primary' : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'} flex items-center justify-center gap-2`}
                                     >
-                                        <IconPlay size={18} /> 开始对战
+                                        <IconPlay size={18} /> {battleOrigin === 'PUBLIC' ? '即将开始...' : '开始对战'}
                                     </button>
                                 )}
 
                                 {myRole === 'CHALLENGER' && (
                                     <button 
                                         onClick={handleToggleReady}
+                                        disabled={battleOrigin === 'PUBLIC' && amIReady} // Public matches auto-lock
                                         className={`pixel-btn w-full ${amIReady ? 'pixel-btn-secondary' : 'pixel-btn-success'} flex items-center justify-center gap-2`}
                                     >
-                                        <IconCheck size={18} /> {amIReady ? '取消准备' : '准备就绪'}
+                                        <IconCheck size={18} /> {amIReady ? (battleOrigin === 'PUBLIC' ? '等待房主...' : '取消准备') : '准备就绪'}
                                     </button>
                                 )}
                             </div>
@@ -1481,12 +1613,13 @@ const App: React.FC = () => {
                                         <button 
                                             onClick={() => { 
                                                 net.disconnect(); 
-                                                if(battleOrigin === 'PUBLIC') enterPublicHall(); 
+                                                if (battleState.mode === 'LOCAL_BOT') setView('BATTLE_SETUP');
+                                                else if(battleOrigin === 'PUBLIC') enterPublicHall(); 
                                                 else if (battleOrigin === 'PRIVATE') joinPrivateRoom();
                                             }} 
                                             className="pixel-btn pixel-btn-secondary flex items-center justify-center gap-2"
                                         >
-                                            <IconBack size={20} /> {battleOrigin === 'PUBLIC' ? '返回大厅' : '返回房间'}
+                                            <IconBack size={20} /> {battleState.mode === 'LOCAL_BOT' ? '返回' : (battleOrigin === 'PUBLIC' ? '返回大厅' : '返回房间')}
                                         </button>
                                         
                                         {!isSpectating && (
