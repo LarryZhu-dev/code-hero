@@ -289,8 +289,14 @@ export const createOrbProjectile = (
     // Size scaling
     const size = Math.min(30, 8 + Math.log(Math.max(1, value)) * 2);
     
-    // Draw projectile based on remaining shapes (ORB / CIRCLE / others fall back here)
-    if (shape === 'ORB') {
+    // Draw projectile based on shape
+    if (shape === 'ARROW') {
+        g.rect(-10, -1, 20, 2).fill(color); // Shaft
+        g.moveTo(10, 0).lineTo(6, -4).lineTo(6, 4).fill(color); // Head
+        // Feathers
+        g.moveTo(-10, 0).lineTo(-14, -3).stroke({width: 1, color: 0xffffff});
+        g.moveTo(-10, 0).lineTo(-14, 3).stroke({width: 1, color: 0xffffff});
+    } else if (shape === 'ORB') {
         g.circle(0, 0, size).fill(color);
         g.circle(0, 0, size * 1.5).stroke({ width: 2, color: color, alpha: 0.6 });
         // Glow center
@@ -312,6 +318,8 @@ export const createOrbProjectile = (
     const duration = distance / speed;
     
     let progress = 0;
+    let lastX = g.x;
+    let lastY = g.y;
     
     const animate = () => {
         if (!g.parent) return;
@@ -321,15 +329,29 @@ export const createOrbProjectile = (
         if (trajectory === 'LINEAR') {
              g.x = startX + dx * ratio;
              g.y = startY + dy * ratio;
-             g.rotation += 0.2;
         } else {
              g.x = startX + dx * ratio;
              g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 80; // Arc
-             g.rotation += 0.2;
         }
 
+        // Rotation logic
+        if (shape === 'ARROW') {
+            // Point towards direction of movement
+            const vx = g.x - lastX;
+            const vy = g.y - lastY;
+            if (vx !== 0 || vy !== 0) {
+                g.rotation = Math.atan2(vy, vx);
+            }
+        } else {
+            // Spin for balls/orbs
+            g.rotation += 0.2;
+        }
+        
+        lastX = g.x;
+        lastY = g.y;
+
         // Enhanced Trail: Spawn particles
-        if (progress % 2 === 0) {
+        if (progress % 2 === 0 && shape !== 'ARROW') {
             const p = new PIXI.Graphics();
             if (shape === 'ORB') {
                 p.circle(0, 0, size * 0.5).fill({ color: color, alpha: 0.6 });
@@ -393,7 +415,7 @@ export const createProjectile = (
         return;
     }
 
-    // Default to Orb/Circle logic
+    // Default to Orb/Circle/Arrow logic
     createOrbProjectile(app, startX, startY, endX, endY, color, value, trajectory, shape, onHit);
 };
 

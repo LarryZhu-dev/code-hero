@@ -92,7 +92,7 @@ export interface Formula {
     factorB: FormulaFactor;
 }
 
-export type VisualShape = 'CIRCLE' | 'SQUARE' | 'STAR' | 'BEAM' | 'ORB';
+export type VisualShape = 'CIRCLE' | 'SQUARE' | 'STAR' | 'BEAM' | 'ORB' | 'ARROW';
 export type AnimationType = 'CAST' | 'THRUST' | 'THROW';
 
 export interface EffectVisual {

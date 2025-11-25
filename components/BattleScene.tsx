@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent, VisualShape, AppearanceConfig } from '../types';
@@ -582,7 +580,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                         await new Promise(r => setTimeout(r, 16));
                     }
                     
-                    source.animateAttack();
+                    await source.animateAttack();
 
                     createSlashEffect(app, target.container.x, target.container.y);
                     
@@ -600,7 +598,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                         const isRanged = wType === 'BOW' || wType === 'STAFF';
 
                         if (isRanged) {
-                            source.animateAttack();
+                            const animPromise = source.animateAttack();
                             // Spawn projectile logic
                             const startX = source.container.x + (source.isFacingLeft ? -20 : 20);
                             const startY = source.container.y - 40;
@@ -608,14 +606,19 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                             const endY = target ? target.container.y - 30 : startY;
 
                             if (wType === 'BOW') {
+                                // Wait for pull back (approx 260ms in animateAttack)
+                                await new Promise(r => setTimeout(r, 260));
                                 await new Promise<void>(resolve => {
-                                    createProjectile(app, startX, startY, endX, endY, 0x94a3b8, 100, 'LINEAR', 'CIRCLE', resolve);
+                                    createProjectile(app, startX, startY, endX, endY, 0x94a3b8, 100, 'LINEAR', 'ARROW', resolve);
                                 });
                             } else {
+                                await new Promise(r => setTimeout(r, 150));
                                 await new Promise<void>(resolve => {
                                     createProjectile(app, startX, startY, endX, endY, 0xa855f7, 100, 'LINEAR', 'ORB', resolve);
                                 });
                             }
+                            await animPromise;
+
                         } else {
                             // Melee Thrust
                             if (target) {
@@ -626,17 +629,36 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                                     source.container.x += (endX - startX) / 5;
                                     await new Promise(r => setTimeout(r, 16));
                                 }
-                                source.animateAttack();
+                                
+                                const attackPromise = source.animateAttack();
+                                // Wait for hit frame
+                                await new Promise(r => setTimeout(r, 150));
+                                
                                 createSlashEffect(app, target.container.x, target.container.y);
-                                await new Promise(r => setTimeout(r, 100));
+                                await attackPromise;
+                                
+                                // Smooth Return
+                                for (let i = 0; i < 8; i++) {
+                                    source.container.x += (startX - source.container.x) * 0.25;
+                                    await new Promise(r => setTimeout(r, 16));
+                                }
                                 source.container.x = startX;
                             } else {
-                                source.animateAttack();
+                                await source.animateAttack();
                             }
                         }
 
                     } else if (animType === 'THROW') {
                         if (target) {
+                            // Windup
+                            const startRot = source.handGroup.rotation;
+                            for(let i=0; i<5; i++) {
+                                source.handGroup.rotation -= 0.3;
+                                await new Promise(r => setTimeout(r, 16));
+                            }
+                            // Throw swing
+                            source.handGroup.rotation += 0.8;
+                            
                             // 1. Hide real weapon
                             source.setWeaponVisible(false);
 
@@ -672,6 +694,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                             weaponClone.rotation = 2.5; // Stuck angle
                             weaponClone.y = targetY;
 
+                            // Reset arm
+                            source.handGroup.rotation = startRot;
+
                             // 6. Character runs to weapon
                             const runnerStartX = source.container.x;
                             const distToWeapon = targetX > runnerStartX ? targetX - 40 : targetX + 40;
@@ -694,12 +719,12 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                             source.container.x = runnerStartX;
 
                         } else {
-                            source.animateAttack();
+                            await source.animateAttack();
                         }
 
                     } else {
                         // Default Cast
-                        source.animateCast();
+                        source.animateCast(); // No await needed, visual effect spawns immediately
                         createMagicEffect(app, source.container.x, source.container.y, 0xfbbf24);
                     }
                     await new Promise(r => setTimeout(r, 200));
