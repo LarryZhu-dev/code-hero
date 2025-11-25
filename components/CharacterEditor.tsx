@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS } from '../types';
 import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight, ArrowLeft } from 'lucide-react';
@@ -163,7 +162,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 {/* Stats Panel */}
                 <div className="w-[400px] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl">
                     <div className="bg-slate-800/80 p-5 border-b border-slate-700 shadow-md z-10">
-                        <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">
+                        <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2 retro-font">
                             <Activity size={18}/> 属性配置
                         </h3>
                         <div className="grid grid-cols-2 gap-3">
@@ -211,7 +210,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                                         onFocus={(e) => e.target.select()}
                                                         min={0}
                                                     />
-                                                    <span className="absolute left-2 top-1.5 text-xs text-slate-600 select-none pointer-events-none">Base</span>
+                                                    <span className="absolute left-2 top-1.5 text-xs text-slate-600 select-none pointer-events-none">基础</span>
                                                 </>
                                             ) : (
                                                 <div className="h-full flex items-center justify-center opacity-30 bg-slate-950/50 rounded border border-transparent">
@@ -250,7 +249,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 {/* Skills Editor */}
                 <div className="flex-1 flex flex-col overflow-hidden bg-slate-800/30 rounded-xl border border-slate-700/50">
                     <div className="flex justify-between items-center p-5 border-b border-slate-700 bg-slate-900/50 backdrop-blur z-10">
-                        <h3 className="text-xl font-bold text-purple-400 flex items-center gap-2">
+                        <h3 className="text-xl font-bold text-purple-400 flex items-center gap-2 retro-font">
                             <Cpu size={24} /> 技能编程逻辑
                         </h3>
                         <div className="flex items-center gap-3">
@@ -352,7 +351,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                 </div>
                 <div className="flex items-center gap-6">
                     <div className="flex flex-col items-end">
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider">Mana Cost</span>
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider">法力消耗</span>
                         <div className="flex items-center gap-1">
                             <span className={`font-mono font-bold text-lg ${manaCost > 1000 ? 'text-red-500 animate-pulse' : manaCost > 100 ? 'text-red-400' : 'text-blue-400'}`}>
                                 {manaCost}
@@ -530,7 +529,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                         </select>
                                     )}
 
-                                    <span className="text-slate-500 text-xs">of</span>
+                                    <span className="text-slate-500 text-xs">的</span>
                                     <select 
                                         className={styles.target}
                                         value={eff.target}

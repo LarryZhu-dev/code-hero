@@ -102,7 +102,7 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack }) => {
                                 <div>
                                     <h3 className="font-bold text-lg text-white group-hover:text-blue-300 transition-colors">{hero.name}</h3>
                                     <div className="text-xs text-slate-400 flex gap-2">
-                                        <span>Skills: {hero.skills.length}</span>
+                                        <span>技能数: {hero.skills.length}</span>
                                     </div>
                                 </div>
                             </div>

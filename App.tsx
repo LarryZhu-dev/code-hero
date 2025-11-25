@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
@@ -739,7 +738,7 @@ const App: React.FC = () => {
                 <span className="retro-font text-blue-400 text-sm cursor-pointer" onClick={() => {
                     net.disconnect();
                     setView('MENU');
-                }}>CODE WARRIORS</span>
+                }}>Code Hero</span>
                 <div className="text-xs text-slate-600 font-mono">ID: {playerId.slice(0, 6)}</div>
             </div>
 
@@ -824,7 +823,7 @@ const App: React.FC = () => {
                 {view === 'MENU' && (
                     <div className="flex flex-col items-center justify-center h-full gap-12 animate-in fade-in zoom-in duration-500">
                         <h1 className="text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 retro-font drop-shadow-2xl">
-                            CODE WARRIORS
+                            Code Hero
                         </h1>
                         
                         <div className="flex gap-6">
@@ -834,7 +833,7 @@ const App: React.FC = () => {
                             >
                                 <div className="absolute inset-0 bg-blue-900/20 scale-0 group-hover:scale-100 transition-transform rounded-full blur-3xl"></div>
                                 <Users size={48} className="text-blue-400 relative z-10" />
-                                <span className="text-xl font-bold relative z-10">英雄名册</span>
+                                <span className="text-xl font-bold retro-font relative z-10">英雄名册</span>
                                 <span className="text-xs text-slate-500 relative z-10">创建 & 管理</span>
                             </button>
 
@@ -844,7 +843,7 @@ const App: React.FC = () => {
                             >
                                 <div className="absolute inset-0 bg-red-900/20 scale-0 group-hover:scale-100 transition-transform rounded-full blur-3xl"></div>
                                 <Swords size={48} className="text-red-400 relative z-10" />
-                                <span className="text-xl font-bold relative z-10">开始战斗</span>
+                                <span className="text-xl font-bold retro-font relative z-10">开始战斗</span>
                                 <span className="text-xs text-slate-500 relative z-10">单机 / 联机</span>
                             </button>
                         </div>
@@ -883,13 +882,13 @@ const App: React.FC = () => {
                         <div className="grid grid-cols-2 gap-6">
                              <button onClick={startLocalBotBattle} className="w-64 p-6 bg-slate-800 hover:bg-emerald-900/30 border border-slate-600 hover:border-emerald-500 rounded-xl flex flex-col items-center gap-3 transition-all">
                                 <Cpu size={40} className="text-emerald-400"/>
-                                <span className="font-bold text-lg">人机训练</span>
+                                <span className="font-bold text-lg retro-font">人机训练</span>
                                 <span className="text-xs text-slate-500">VS AI BOT (本地)</span>
                             </button>
 
                             <div className="w-64 p-6 bg-slate-800 border border-slate-600 rounded-xl flex flex-col items-center gap-4">
                                 <Globe size={40} className="text-blue-400"/>
-                                <span className="font-bold text-lg">在线对战</span>
+                                <span className="font-bold text-lg retro-font">在线对战</span>
                                 <input 
                                     className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-center font-mono text-sm w-full outline-none focus:border-blue-500"
                                     placeholder="输入房间号 (如: 123)"
@@ -912,7 +911,7 @@ const App: React.FC = () => {
                 {view === 'LOBBY' && myChar && (
                     <div className="flex flex-col items-center justify-center h-full gap-8 p-12 relative">
                         <div className="absolute top-12 flex flex-col items-center gap-2">
-                            <div className="text-slate-400 text-sm font-bold uppercase tracking-widest">Room ID</div>
+                            <div className="text-slate-400 text-sm font-bold uppercase tracking-widest">房间号</div>
                             <div className="flex items-center gap-4">
                                 <div className="text-4xl font-mono font-bold text-white bg-slate-800 px-6 py-2 rounded-xl border border-slate-700 shadow-xl">
                                     {roomId}
@@ -938,7 +937,7 @@ const App: React.FC = () => {
                             <div className="flex flex-col items-center gap-4">
                                 <div className={`relative w-48 h-64 bg-slate-800 rounded-xl border-2 flex flex-col items-center justify-center p-4 transition-all ${myRole === 'HOST' ? 'border-yellow-500' : 'border-slate-600'}`}>
                                     <div className="w-20 h-20 rounded-lg mb-4 shadow-lg" style={{backgroundColor: (myRole === 'HOST' ? myChar : opponentChar)?.avatarColor || '#333'}}></div>
-                                    <h3 className="font-bold text-lg">{(myRole === 'HOST' ? myChar : opponentChar)?.name || 'Waiting...'}</h3>
+                                    <h3 className="font-bold text-lg">{(myRole === 'HOST' ? myChar : opponentChar)?.name || '等待中...'}</h3>
                                     <span className="text-xs text-yellow-500 mb-4 font-bold">房主 (HOST)</span>
                                     
                                     {myRole === 'HOST' && (
@@ -1017,7 +1016,7 @@ const App: React.FC = () => {
                     {/* Battle Scene */}
                     <div className="flex-1 relative bg-slate-900 flex flex-col items-center justify-center p-8 overflow-hidden">
                         <div className="absolute top-4 text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10">
-                            ROUND {battleState.turn}
+                            回合 {battleState.turn}
                         </div>
                         
                         {myRole !== 'SPECTATOR' && (
@@ -1064,7 +1063,7 @@ const App: React.FC = () => {
                             </div>
                             
                             <div className="flex flex-col items-center">
-                                <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Timer</div>
+                                <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">倒计时</div>
                                 <div className={`text-2xl font-mono font-bold px-4 py-1 rounded border ${battleState.timeLeft < 10 ? 'text-red-500 border-red-900 bg-red-950' : 'text-white border-slate-700 bg-slate-800'}`}>
                                     {battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId ? battleState.timeLeft : '--'}
                                 </div>
@@ -1135,7 +1134,7 @@ const App: React.FC = () => {
                                                         >
                                                             {isPassive && (
                                                                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500 whitespace-nowrap z-20">
-                                                                    PASSIVE
+                                                                    被动
                                                                 </div>
                                                             )}
                                                             
@@ -1172,7 +1171,7 @@ const App: React.FC = () => {
                                                     </div>
                                                     <div className="absolute top-4 right-4 flex gap-2 items-center">
                                                         <span className="text-xs text-slate-600 self-center">确认</span>
-                                                        <div className="px-2 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400 font-mono">ENTER</div>
+                                                        <div className="px-2 h-6 rounded bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-slate-400 font-mono">回车</div>
                                                         <CornerDownLeft size={14} className="text-slate-500"/>
                                                     </div>
                                                 </>
@@ -1213,13 +1212,13 @@ const App: React.FC = () => {
                                 <div className="text-center transform scale-110">
                                     {myRole === 'SPECTATOR' ? (
                                         <h2 className="text-5xl font-bold mb-6 retro-font text-yellow-400">
-                                            GAME OVER
+                                            游戏结束
                                         </h2>
                                     ) : (
                                         <h2 className={`text-6xl font-bold mb-6 retro-font ${
                                             (battleState.winnerId === playerId) ? 'text-yellow-400' : 'text-red-500'
                                         }`}>
-                                            { (battleState.winnerId === playerId) ? 'VICTORY' : 'DEFEAT' }
+                                            { (battleState.winnerId === playerId) ? '胜利' : '失败' }
                                         </h2>
                                     )}
                                     <button 
