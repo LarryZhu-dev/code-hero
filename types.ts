@@ -122,7 +122,7 @@ export interface CharacterConfig {
 export type BattleMode = 'LOCAL_BOT' | 'ONLINE_PVP';
 
 // Animation Events
-export type BattleEventType = 'ATTACK_MOVE' | 'SKILL_EFFECT' | 'DAMAGE' | 'HEAL' | 'MANA' | 'TEXT' | 'DEATH';
+export type BattleEventType = 'ATTACK_MOVE' | 'SKILL_EFFECT' | 'DAMAGE' | 'HEAL' | 'MANA' | 'TEXT' | 'DEATH' | 'PROJECTILE' | 'STAT_CHANGE';
 
 export interface BattleEvent {
     type: BattleEventType;
@@ -132,6 +132,8 @@ export interface BattleEvent {
     text?: string;
     color?: string; // Hex string for floating text color
     skillName?: string;
+    projectileType?: 'PHYSICAL' | 'MAGIC';
+    stat?: StatType;
 }
 
 export interface BattleState {

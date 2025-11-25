@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent } from '../types';
@@ -9,6 +10,19 @@ interface Props {
     onAnimationsComplete?: () => void;
     onEntityClick?: (id: string) => void;
 }
+
+// Map stats to distinct colors
+const STAT_COLORS: Partial<Record<StatType, number>> = {
+    [StatType.HP]: 0xef4444, // Red
+    [StatType.MANA]: 0x3b82f6, // Blue
+    [StatType.AD]: 0xf97316, // Orange
+    [StatType.AP]: 0xa855f7, // Purple
+    [StatType.ARMOR]: 0xeab308, // Yellow
+    [StatType.MR]: 0x06b6d4, // Cyan
+    [StatType.SPEED]: 0x10b981, // Emerald
+    [StatType.CRIT_RATE]: 0xec4899, // Pink
+    [StatType.CRIT_DMG]: 0xbe185d, // Dark Pink
+};
 
 // Extend window interface for TS
 declare global {
@@ -207,19 +221,20 @@ class PixelEntity {
 
         // HP Ticks (Method 1.1)
         if (visualMaxHp > 0) {
-            // Draw a tick every 100 HP. Density increases as total HP increases.
-            // Limit loop to prevent performance issues with extreme numbers (cap at 200 ticks ~ 20k HP)
+            // Draw a tick every 100 HP. 
+            // FIX: Remove hard 200 tick limit, increase maxTicks significantly, adapt density.
             const tickStep = 100;
-            const maxTicks = 200; 
+            const maxTicks = 2000; // Increased limit
             
             let ticksDrawn = 0;
             for (let v = tickStep; v < visualMaxHp && ticksDrawn < maxTicks; v += tickStep) {
                 const x = (v / visualMaxHp) * barWidth - (barWidth / 2);
                 
                 const isMajor = v % 1000 === 0;
-                // Major tick: 60% height, Minor tick: 30% height
-                const h = isMajor ? barHeight * 0.6 : barHeight * 0.3;
-                const y = (barHeight - h) / 2;
+                // Major tick: 100% height, Minor tick: 50% height
+                // Aligned to Top (y = 0)
+                const h = isMajor ? barHeight : barHeight * 0.5;
+                const y = 0; // Top align
                 
                 // Draw tick line
                 g.rect(x, y, 1, h).fill({ color: 0x000000, alpha: 0.5 });
@@ -233,7 +248,6 @@ class PixelEntity {
         g.rect(-barWidth/2, 12, barWidth, 4).fill(0x334155);
 
         // Mana Foreground
-        // Ensure we visualize real current vs real max (or effective max)
         const visualMaxMana = Math.max(this.maxMana, this.currentMana);
         const mpPct = visualMaxMana > 0 ? Math.max(0, this.currentMana / visualMaxMana) : 0;
         g.rect(-barWidth/2, 12, barWidth * mpPct, 4).fill(0x3b82f6);
@@ -313,7 +327,91 @@ const createMagicEffect = (app: PIXI.Application, x: number, y: number, color: n
     requestAnimationFrame(animate);
 };
 
-const createParticles = (app: PIXI.Application, x: number, y: number, color: number, count: number = 5) => {
+const createProjectile = (
+    app: PIXI.Application, 
+    startX: number, 
+    startY: number, 
+    endX: number, 
+    endY: number, 
+    color: number, 
+    value: number, 
+    onHit: () => void
+) => {
+    const g = new PIXI.Graphics();
+    app.stage.addChild(g);
+
+    // Size scaling: Base 8, grows with damage
+    const size = Math.min(30, 8 + Math.log(Math.max(1, value)) * 2);
+    
+    // Draw projectile
+    g.circle(0, 0, size).fill(color);
+    // Glow
+    g.circle(0, 0, size * 1.5).fill({ color: color, alpha: 0.3 });
+
+    g.x = startX;
+    g.y = startY;
+
+    // Animation
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const speed = 15;
+    const duration = distance / speed;
+    
+    let progress = 0;
+    
+    // Trail container
+    const trail: PIXI.Graphics[] = [];
+
+    const animate = () => {
+        progress += 1;
+        const ratio = Math.min(1, progress / duration);
+        
+        g.x = startX + dx * ratio;
+        g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 50; // Arc
+
+        // Create trail dot
+        if (progress % 2 === 0) {
+            const t = new PIXI.Graphics();
+            t.circle(0, 0, size * 0.6).fill({ color: color, alpha: 0.5 });
+            t.x = g.x;
+            t.y = g.y;
+            app.stage.addChild(t);
+            trail.push(t);
+        }
+
+        // Update trail fade
+        for (let i = trail.length - 1; i >= 0; i--) {
+            trail[i].alpha -= 0.1;
+            trail[i].scale.set(trail[i].scale.x * 0.9);
+            if (trail[i].alpha <= 0) {
+                if (trail[i].parent) app.stage.removeChild(trail[i]);
+                trail[i].destroy();
+                trail.splice(i, 1);
+            }
+        }
+
+        if (ratio >= 1) {
+            if (g.parent) app.stage.removeChild(g);
+            g.destroy();
+            // Cleanup remaining trail
+            trail.forEach(t => { if(t.parent) t.parent.removeChild(t); t.destroy(); });
+            onHit();
+        } else {
+            requestAnimationFrame(animate);
+        }
+    };
+    requestAnimationFrame(animate);
+};
+
+const createParticles = (
+    app: PIXI.Application, 
+    x: number, 
+    y: number, 
+    color: number, 
+    count: number = 5,
+    type: 'EXPLOSION' | 'UP' | 'DOWN' = 'EXPLOSION'
+) => {
     for (let i = 0; i < count; i++) {
         const p = new PIXI.Graphics();
         p.rect(0, 0, 6, 6).fill(color);
@@ -321,14 +419,23 @@ const createParticles = (app: PIXI.Application, x: number, y: number, color: num
         p.y = y - 30;
         app.stage.addChild(p);
 
-        const vx = (Math.random() - 0.5) * 10;
-        const vy = (Math.random() - 1) * 10;
+        let vx = (Math.random() - 0.5) * 10;
+        let vy = (Math.random() - 1) * 10;
+        
+        if (type === 'UP') {
+            vx = (Math.random() - 0.5) * 4;
+            vy = -Math.random() * 5 - 2;
+        } else if (type === 'DOWN') {
+            vx = (Math.random() - 0.5) * 4;
+            vy = Math.random() * 5 + 2;
+        }
+
         let life = 1.0;
 
         const animate = () => {
             p.x += vx;
             p.y += vy;
-            life -= 0.05;
+            life -= 0.03;
             p.scale.set(life);
 
             if (life <= 0) {
@@ -506,7 +613,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
 
         const safetyTimer = setTimeout(() => {
             if (onAnimationsComplete) onAnimationsComplete();
-        }, 5000);
+        }, 8000); // Increased safety timeout for projectile flight time
 
         const processAnimations = async () => {
             // Wait for app to be ready (async check)
@@ -573,6 +680,28 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
 
                 // Dynamic pause based on event type
                 const pause = evt.type === 'TEXT' ? 50 : 300;
+                
+                // For Projectiles, we wait for impact (logic handled inside)
+                if (evt.type === 'PROJECTILE' && source && target) {
+                    await new Promise<void>(resolve => {
+                        const color = evt.projectileType === 'MAGIC' ? 0x3b82f6 : 0xef4444;
+                        const value = evt.value || 100;
+                        createProjectile(
+                            app, 
+                            source.container.x, 
+                            source.container.y - 30, 
+                            target.container.x, 
+                            target.container.y - 30, 
+                            color, 
+                            value, 
+                            resolve
+                        );
+                    });
+                    // Minimal pause after impact before damage number
+                    await new Promise(r => setTimeout(r, 50));
+                    continue; // Skip the generic pause
+                }
+
                 await new Promise(r => setTimeout(r, pause));
 
                 if (evt.type === 'ATTACK_MOVE' && source && target) {
@@ -602,8 +731,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     if (evt.value) target.targetHp -= evt.value;
                     spawnText(evt.value?.toString() || '', target.container.x, target.container.y, evt.color || '#ef4444');
                     
-                    // Particles
-                    createParticles(app, target.container.x, target.container.y, 0xef4444, 8);
+                    // Particles - Scaled by damage
+                    const particleCount = Math.min(20, Math.floor((evt.value || 0) / 50) + 5);
+                    createParticles(app, target.container.x, target.container.y, 0xef4444, particleCount, 'EXPLOSION');
 
                     // Flash Red
                     const originalTint = target.characterGroup.tint;
@@ -621,7 +751,8 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 else if (evt.type === 'HEAL' && target) {
                     if (evt.value) target.targetHp += evt.value;
                     spawnText(`+${evt.value}`, target.container.x, target.container.y, '#4ade80');
-                    createParticles(app, target.container.x, target.container.y, 0x4ade80, 5);
+                    // Upward green particles
+                    createParticles(app, target.container.x, target.container.y, 0x4ade80, 8, 'UP');
                 }
                 else if (evt.type === 'MANA' && target) {
                      if (evt.value) {
@@ -630,6 +761,26 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                          const text = val > 0 ? `+${val} MP` : `${val} MP`;
                          spawnText(text, target.container.x, target.container.y, '#3b82f6');
                      }
+                }
+                else if (evt.type === 'STAT_CHANGE' && target) {
+                    // Floating text for stat change
+                    let colorHex = '#ffffff';
+                    let particleColor = 0xffffff;
+                    
+                    if (evt.stat) {
+                        const c = STAT_COLORS[evt.stat] || 0xffffff;
+                        particleColor = c;
+                        colorHex = '#' + c.toString(16).padStart(6, '0');
+                    }
+                    
+                    spawnText(evt.text || 'STAT', target.container.x, target.container.y - 20, colorHex);
+                    
+                    // Downward particles if decrease
+                    if (evt.value && evt.value < 0) {
+                        createParticles(app, target.container.x, target.container.y, particleColor, 5, 'DOWN');
+                    } else {
+                        createParticles(app, target.container.x, target.container.y, particleColor, 5, 'UP');
+                    }
                 }
             }
             

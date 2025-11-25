@@ -278,6 +278,15 @@ export const processSkill = (
                 if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
+            // Projectile Visual
+            pushEvent({
+                type: 'PROJECTILE',
+                sourceId: caster.id,
+                targetId: effectTarget.id,
+                projectileType: 'PHYSICAL',
+                value: damage
+            });
+
             effectTarget.currentHp -= damage;
             pushEvent({
                 type: 'DAMAGE',
@@ -302,6 +311,15 @@ export const processSkill = (
                 caster.currentHp += heal;
                 if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
+
+            // Projectile Visual
+            pushEvent({
+                type: 'PROJECTILE',
+                sourceId: caster.id,
+                targetId: effectTarget.id,
+                projectileType: 'MAGIC',
+                value: damage
+            });
 
             effectTarget.currentHp -= damage;
             pushEvent({
@@ -337,10 +355,13 @@ export const processSkill = (
                     if (typeof effectTarget.config.stats.base[stat] === 'number') {
                         effectTarget.config.stats.base[stat] += val;
                         const sign = val >= 0 ? '+' : '';
-                        pushEvent({ 
-                            type: 'TEXT', 
-                            text: `${effectTarget.config.name} ${stat} ${sign}${val}`, 
-                            color: val >= 0 ? '#4ade80' : '#ef4444' 
+                        
+                        pushEvent({
+                            type: 'STAT_CHANGE',
+                            targetId: effectTarget.id,
+                            stat: stat,
+                            value: val,
+                            text: `${sign}${val} ${stat}`
                         });
                     }
                 }
