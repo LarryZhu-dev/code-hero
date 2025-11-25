@@ -164,7 +164,7 @@ export interface CharacterConfig {
     role?: HeroRole; // Calculated automatically
 }
 
-export type BattleMode = 'LOCAL_BOT' | 'ONLINE_PVP';
+export type BattleMode = 'LOCAL_BOT' | 'ONLINE_PVP' | 'TOWER';
 
 // Animation Events
 export type BattleEventType = 'ATTACK_MOVE' | 'SKILL_EFFECT' | 'DAMAGE' | 'HEAL' | 'MANA' | 'TEXT' | 'DEATH' | 'PROJECTILE' | 'STAT_CHANGE';
@@ -194,6 +194,7 @@ export interface BattleState {
     mode: BattleMode;
     roomId?: string;
     events: BattleEvent[]; // Queue of events to animate
+    towerLevel?: number; // Only for TOWER mode
 }
 
 export interface BattleEntity {

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
@@ -9,14 +10,15 @@ import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode
 import { processSkill, evaluateCondition, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
+import { TOWER_LEVELS } from './utils/towerData';
 import { 
     IconBolt, IconBoot, IconCheck, IconCrosshair, IconHeart, IconHome, IconMana, 
     IconPlay, IconRefresh, IconSave, IconShield, IconSkull, IconStaff, IconSword,
     IconBrokenShield, IconVampire, IconDroplet, IconSpark, IconMuscle, IconBack
 } from './components/PixelIcons';
-import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X } from 'lucide-react';
+import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X, TowerControl as Tower } from 'lucide-react';
 
-type AppView = 'MENU' | 'HERO_MANAGE' | 'EDITOR' | 'BATTLE_SETUP' | 'PUBLIC_HALL' | 'LOBBY' | 'BATTLE';
+type AppView = 'MENU' | 'HERO_MANAGE' | 'EDITOR' | 'BATTLE_SETUP' | 'PUBLIC_HALL' | 'LOBBY' | 'BATTLE' | 'TOWER_SELECT';
 type UserRole = 'HOST' | 'CHALLENGER' | 'SPECTATOR' | 'NONE';
 
 // --- Stat Icon Mapping ---
@@ -158,6 +160,9 @@ const App: React.FC = () => {
     const [opponentRematchRequest, setOpponentRematchRequest] = useState(false);
     const [opponentLeft, setOpponentLeft] = useState(false);
 
+    // Tower State
+    const [towerProgress, setTowerProgress] = useState(1);
+
     const [inspectedEntity, setInspectedEntity] = useState<BattleEntity | null>(null);
     const processingTurnRef = useRef(false);
     const battleStateRef = useRef<BattleState | null>(null);
@@ -179,6 +184,12 @@ const App: React.FC = () => {
             setMyChar(found || all[0]);
         }
     }, []);
+
+    useEffect(() => {
+        if (view === 'TOWER_SELECT') {
+            setTowerProgress(StorageService.getTowerProgress());
+        }
+    }, [view]);
 
     useEffect(() => {
         myRoleRef.current = myRole;
@@ -312,6 +323,13 @@ const App: React.FC = () => {
         dummy.stats.base[StatType.SPEED] = 100;
         setMyRole('HOST'); 
         initBattle(myChar, dummy, 'LOCAL_BOT');
+    };
+
+    const startTowerBattle = (level: number) => {
+        if (!myChar) return;
+        const enemy = TOWER_LEVELS[level - 1];
+        setMyRole('HOST');
+        initBattle(myChar, enemy, 'TOWER', level);
     };
 
     const enterPublicHall = () => {
@@ -711,13 +729,18 @@ const App: React.FC = () => {
     const handleRematchClick = () => {
         if (battleState?.mode === 'LOCAL_BOT') {
             startLocalBotBattle();
+        } else if (battleState?.mode === 'TOWER') {
+             // Replay same level or next
+             if (battleState.towerLevel) {
+                 startTowerBattle(battleState.towerLevel);
+             }
         } else {
             setMyRematchRequest(true);
             net.sendRematch();
         }
     };
 
-    const initBattle = (hostConfig: CharacterConfig, challengerConfig: CharacterConfig, mode: BattleMode) => {
+    const initBattle = (hostConfig: CharacterConfig, challengerConfig: CharacterConfig, mode: BattleMode, towerLevel?: number) => {
         setMyRematchRequest(false);
         setOpponentRematchRequest(false);
         setOpponentLeft(false);
@@ -727,7 +750,7 @@ const App: React.FC = () => {
         const p1First = p1Speed >= p2Speed;
 
         const hostId = playerId;
-        const challengerId = mode === 'LOCAL_BOT' ? 'bot_enemy' : (opponentId || 'unknown_challenger');
+        const challengerId = mode === 'LOCAL_BOT' || mode === 'TOWER' ? 'bot_enemy' : (opponentId || 'unknown_challenger');
 
         const hostMaxHp = getTotalStat({ config: hostConfig } as any, StatType.HP);
         const hostMaxMana = getTotalStat({ config: hostConfig } as any, StatType.MANA);
@@ -766,7 +789,8 @@ const App: React.FC = () => {
             timeLeft: 60,
             mode: mode,
             roomId: roomId,
-            events: []
+            events: [],
+            towerLevel: towerLevel
         };
 
         setBattleState(initialState);
@@ -890,6 +914,11 @@ const App: React.FC = () => {
             newState.log.push(`${active.config.name} 获胜！`);
             setBattleState(newState);
             if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
+            
+            // Save Tower Progress if victory
+            if (newState.mode === 'TOWER' && active.id === playerId && newState.towerLevel) {
+                 StorageService.saveTowerProgress(newState.towerLevel + 1);
+            }
             return;
         }
         if (active.currentHp <= 0) {
@@ -917,7 +946,7 @@ const App: React.FC = () => {
         setBattleState(newState);
         if (newState.mode === 'ONLINE_PVP') net.sendState(newState);
         
-    }, [battleState, myRole]);
+    }, [battleState, myRole, playerId]);
 
     const handleSurrender = () => {
         if (!battleState || myRole === 'SPECTATOR') return;
@@ -958,7 +987,7 @@ const App: React.FC = () => {
     useEffect(() => {
         if (battleState && battleState.timeLeft === 0 && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId) {
             if (battleState.mode === 'ONLINE_PVP' && myRole !== 'HOST') return;
-            if (battleState.mode === 'LOCAL_BOT' || myRole === 'HOST') {
+            if (battleState.mode === 'LOCAL_BOT' || battleState.mode === 'TOWER' || myRole === 'HOST') {
                  // Force unlock processing if previous turn somehow got stuck
                  processingTurnRef.current = false;
                  executeTurn('basic_attack');
@@ -969,7 +998,7 @@ const App: React.FC = () => {
     useEffect(() => {
         if (!battleState) return;
         const { mode, phase, activePlayerId, winnerId } = battleState;
-        if (mode === 'LOCAL_BOT' && phase === 'ACTION_SELECTION' && activePlayerId === 'bot_enemy' && !winnerId) {
+        if ((mode === 'LOCAL_BOT' || mode === 'TOWER') && phase === 'ACTION_SELECTION' && activePlayerId === 'bot_enemy' && !winnerId) {
             const timer = setTimeout(() => {
                 const enemy = battleState.p1.id === 'bot_enemy' ? battleState.p1 : battleState.p2;
                 const skills = enemy.config.skills.filter(s => !s.isPassive);
@@ -979,7 +1008,7 @@ const App: React.FC = () => {
             }, 800);
             return () => clearTimeout(timer);
         }
-    }, [battleState?.turn, battleState?.phase, battleState?.activePlayerId, executeTurn]);
+    }, [battleState?.turn, battleState?.phase, battleState?.activePlayerId, executeTurn, battleState?.mode]);
 
     useEffect(() => {
         if (view !== 'BATTLE' || !battleState || battleState.phase !== 'ACTION_SELECTION') return;
@@ -1281,6 +1310,17 @@ const App: React.FC = () => {
                                     <span className="text-xs text-slate-500 font-mono">VS AI BOT</span>
                                 </div>
                             </button>
+                            
+                            {/* TOWER MODE */}
+                            <button onClick={() => setView('TOWER_SELECT')} className="group relative bg-slate-800 hover:bg-yellow-900/30 border-4 border-slate-700 hover:border-yellow-500 flex flex-col items-center gap-4 p-8 transition-all hover:-translate-y-1">
+                                <div className="p-4 bg-slate-900 rounded-full border-2 border-slate-700 group-hover:border-yellow-500 group-hover:text-yellow-400 text-slate-500 transition-colors">
+                                     <Tower size={32} />
+                                </div>
+                                <div className="text-center">
+                                    <span className="font-bold text-lg retro-font block mb-1">爬塔模式</span>
+                                    <span className="text-xs text-slate-500 font-mono">20 Levels PVE</span>
+                                </div>
+                            </button>
 
                             {/* PUBLIC HALL */}
                             <button onClick={enterPublicHall} className="group relative bg-slate-800 hover:bg-purple-900/30 border-4 border-slate-700 hover:border-purple-500 flex flex-col items-center gap-4 p-8 transition-all hover:-translate-y-1">
@@ -1322,6 +1362,62 @@ const App: React.FC = () => {
                              <IconBack size={16}/> 返回主菜单
                         </button>
                      </div>
+                )}
+
+                {view === 'TOWER_SELECT' && (
+                    <div className="flex flex-col items-center justify-center h-full p-8 bg-slate-950">
+                        <header className="mb-8 text-center">
+                            <h2 className="text-4xl font-bold retro-font text-yellow-400 mb-2 drop-shadow-md">爬塔挑战</h2>
+                            <p className="text-slate-500 font-mono text-sm">挑战层层强敌，突破极限 (Max: 20F)</p>
+                        </header>
+
+                        <div className="grid grid-cols-5 gap-4 max-w-4xl w-full mb-8">
+                            {TOWER_LEVELS.map((levelConfig, index) => {
+                                const level = index + 1;
+                                const isUnlocked = level <= towerProgress;
+                                const isCleared = level < towerProgress;
+                                const isBoss = level % 5 === 0;
+                                
+                                return (
+                                    <button
+                                        key={level}
+                                        onClick={() => isUnlocked && startTowerBattle(level)}
+                                        disabled={!isUnlocked}
+                                        className={`
+                                            relative h-24 border-4 flex flex-col items-center justify-center transition-all
+                                            ${isUnlocked 
+                                                ? (isBoss ? 'bg-red-950/40 border-red-600 hover:bg-red-900/60 hover:-translate-y-1' : 'bg-slate-800 border-slate-600 hover:border-yellow-500 hover:bg-slate-700 hover:-translate-y-1') 
+                                                : 'bg-slate-900 border-slate-800 opacity-50 cursor-not-allowed grayscale'
+                                            }
+                                        `}
+                                    >
+                                        <span className={`text-2xl font-bold retro-font ${isUnlocked ? 'text-white' : 'text-slate-700'}`}>
+                                            {level}F
+                                        </span>
+                                        {isCleared && (
+                                            <div className="absolute top-1 right-1 text-green-500">
+                                                <IconCheck size={16} />
+                                            </div>
+                                        )}
+                                        {isBoss && (
+                                            <div className="absolute bottom-2 text-[10px] text-red-400 font-bold uppercase tracking-wider">BOSS</div>
+                                        )}
+                                        {!isUnlocked && (
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                                                <Lock size={20} className="text-slate-600" />
+                                            </div>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        
+                        <div className="flex gap-4">
+                             <button onClick={() => setView('BATTLE_SETUP')} className="pixel-btn pixel-btn-secondary border-2 flex items-center gap-2">
+                                <IconBack size={16}/> 返回
+                            </button>
+                        </div>
+                    </div>
                 )}
 
                 {view === 'PUBLIC_HALL' && (
@@ -1551,8 +1647,13 @@ const App: React.FC = () => {
                 {view === 'BATTLE' && battleState && (
                     <div className="flex h-full">
                     <div className="flex-1 relative bg-slate-900 flex flex-col items-center justify-center p-8 overflow-hidden">
-                        <div className="absolute top-4 text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10">
-                            回合 {battleState.turn}
+                        <div className="absolute top-4 text-2xl font-bold retro-font text-yellow-400 drop-shadow-md z-10 flex flex-col items-center">
+                            <span>回合 {battleState.turn}</span>
+                            {battleState.mode === 'TOWER' && (
+                                <span className="text-sm text-slate-400 font-mono mt-1">
+                                    TOWER LEVEL {battleState.towerLevel}
+                                </span>
+                            )}
                         </div>
 
                         {/* Timer */}
@@ -1614,12 +1715,13 @@ const App: React.FC = () => {
                                             onClick={() => { 
                                                 net.disconnect(); 
                                                 if (battleState.mode === 'LOCAL_BOT') setView('BATTLE_SETUP');
+                                                else if (battleState.mode === 'TOWER') setView('TOWER_SELECT');
                                                 else if(battleOrigin === 'PUBLIC') enterPublicHall(); 
                                                 else if (battleOrigin === 'PRIVATE') joinPrivateRoom();
                                             }} 
                                             className="pixel-btn pixel-btn-secondary flex items-center justify-center gap-2"
                                         >
-                                            <IconBack size={20} /> {battleState.mode === 'LOCAL_BOT' ? '返回' : (battleOrigin === 'PUBLIC' ? '返回大厅' : '返回房间')}
+                                            <IconBack size={20} /> {battleState.mode === 'LOCAL_BOT' || battleState.mode === 'TOWER' ? '返回' : (battleOrigin === 'PUBLIC' ? '返回大厅' : '返回房间')}
                                         </button>
                                         
                                         {!isSpectating && (
@@ -1639,7 +1741,7 @@ const App: React.FC = () => {
                                                 ) : myRematchRequest ? (
                                                     <><Loader2 size={20} className="animate-spin" /> 等待对方...</>
                                                 ) : (
-                                                    <><IconRefresh size={20} /> 再来一局</>
+                                                    <><IconRefresh size={20} /> {battleState.mode === 'TOWER' && battleState.winnerId === playerId ? '挑战该层' : '再来一局'}</>
                                                 )}
                                             </button>
                                         )}
@@ -1652,6 +1754,15 @@ const App: React.FC = () => {
                                                     </span>
                                                 )}
                                              </div>
+                                        )}
+                                        
+                                        {battleState.mode === 'TOWER' && battleState.winnerId === playerId && battleState.towerLevel && battleState.towerLevel < 20 && (
+                                             <button 
+                                                onClick={() => startTowerBattle(battleState.towerLevel! + 1)}
+                                                className="pixel-btn pixel-btn-success flex items-center justify-center gap-2"
+                                            >
+                                                <Tower size={20} /> 下一层
+                                            </button>
                                         )}
                                     </div>
                                 );

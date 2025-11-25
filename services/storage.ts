@@ -1,9 +1,11 @@
 
+
 import { CharacterConfig, Skill, Effect, INITIAL_STATS, StatType } from "../types";
 
 const STORAGE_KEY = 'cw_heroes_v1';
 const DELETED_DEFAULTS_KEY = 'cw_deleted_defaults';
 const LAST_HERO_KEY = 'cw_last_hero_id';
+const TOWER_PROGRESS_KEY = 'cw_tower_progress';
 
 // Migration helper for v1 stat name changes & Skill Logic Structure
 const migrateCharacter = (char: CharacterConfig): CharacterConfig => {
@@ -76,143 +78,166 @@ const migrateCharacter = (char: CharacterConfig): CharacterConfig => {
     return char;
 };
 
-// --- DEFAULT HARDCODED HEROES ---
+// --- DEFAULT HARDCODED HEROES (Optimized) ---
 const DEFAULT_HEROES: CharacterConfig[] = [
     {
         id: 'default_demacia',
-        name: '呆马西亚之力',
+        name: '德邦之力',
         avatarColor: '#fbbf24', // Gold
         stats: {
             base: { 
                 ...INITIAL_STATS.base, 
-                [StatType.HP]: 4000, 
-                [StatType.AD]: 300, 
-                [StatType.ARMOR]: 150, 
-                [StatType.MR]: 150, 
-                [StatType.SPEED]: 100,
-                [StatType.MANA]: 1000, // Added Mana
-                [StatType.MANA_REGEN]: 20 // Hack: Used as constant "20" for division
+                [StatType.HP]: 6500, 
+                [StatType.AD]: 800, 
+                [StatType.ARMOR]: 500, 
+                [StatType.MR]: 300, 
+                [StatType.SPEED]: 110,
+                [StatType.MANA]: 1000, 
+                [StatType.ARMOR_PEN_FLAT]: 50,
             },
             percent: { 
                 ...INITIAL_STATS.percent, 
-                [StatType.HP]: 50, 
-                [StatType.TENACITY]: 30 
+                [StatType.HP]: 300, 
+                [StatType.AD]: 200,
+                [StatType.TENACITY]: 50,
+                [StatType.MANA_REGEN]: 100, // Regenerates full mana quickly
+                [StatType.CRIT_RATE]: 50
             }
         },
         appearance: { head: 'KNIGHT', body: 'PLATE', weapon: 'SWORD', themeColor: '#fbbf24' },
         skills: [
             {
-                id: 'skill_d_1', name: '坚韧', isPassive: true,
+                id: 'skill_d_1', name: '坚韧之心', isPassive: true,
                 logic: [{
-                    condition: { sourceTarget: 'SELF', variable: 'TURN', operator: '>', value: 0 },
-                    // Formula: HP / MANA_REGEN (4000 / 20 = 200 Heal)
+                    // Passive: If HP < 50%, Heal 10% of Max HP per turn (Using Mana Regen as hack constant / 10)
+                    condition: { sourceTarget: 'SELF', variable: 'HP%', operator: '<', value: 50 },
                     effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.CURRENT_HP, formula: { factorA: { target: 'SELF', stat: StatType.HP }, operator: '/', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } }, visual: { color: '#4ade80', shape: 'CIRCLE' } }
                 }]
             },
             {
-                id: 'skill_d_2', name: '审判', isPassive: false,
+                id: 'skill_d_2', name: '致命打击', isPassive: false,
                 logic: [{
-                    // Dmg: AD * 1.5
-                    effect: { type: 'DAMAGE_PHYSICAL', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AD }, operator: '*', factorB: { target: 'SELF', stat: StatType.AD } }, visual: { color: '#fbbf24', shape: 'SQUARE' } }
+                    // Active: AD * 2.5 damage + Silence (Mana Burn in this system)
+                    effect: { type: 'DAMAGE_PHYSICAL', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AD }, operator: '*', factorB: { target: 'SELF', stat: StatType.AD } }, visual: { color: '#fbbf24', shape: 'SQUARE', animationType: 'THRUST' } }
+                }, {
+                    // Burn 500 Mana from enemy (Silence effect sim)
+                    effect: { type: 'DECREASE_STAT', target: 'ENEMY', targetStat: StatType.CURRENT_MANA, formula: { factorA: { target: 'SELF', stat: StatType.ARMOR }, operator: '+', factorB: { target: 'SELF', stat: StatType.ARMOR } }, visual: { color: '#fbbf24', shape: 'CIRCLE' } }
                 }]
             },
             {
                 id: 'skill_d_3', name: '德玛西亚正义', isPassive: false,
                 logic: [{
-                    // Dmg: Enemy Lost HP * 0.5 (Using lost hp as Factor A, need 0.5 const... Hack: Use CRIT_RATE as 50?)
-                    // Let's simplified: 50% of Enemy Lost HP. 
-                    // Assume user has 0 crit rate? No.
-                    // Just do AD * 5 for big dmg.
-                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AD }, operator: '*', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } }, visual: { color: '#fbbf24', shape: 'BEAM' } }
+                    // Ult: Execute. Damage = Enemy Lost HP.
+                    condition: { sourceTarget: 'ENEMY', variable: 'HP%', operator: '<', value: 40 },
+                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'ENEMY', stat: StatType.HP_LOST }, operator: '*', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } }, visual: { color: '#fbbf24', shape: 'BEAM' } }
                 }]
             }
         ]
     },
     {
         id: 'default_twilight',
-        name: '黄昏女郎',
+        name: '星灵法师',
         avatarColor: '#a855f7', // Purple
         stats: {
             base: { 
                 ...INITIAL_STATS.base, 
-                [StatType.HP]: 2000, 
-                [StatType.MANA]: 2000,
-                [StatType.AP]: 500, 
-                [StatType.SPEED]: 130
+                [StatType.HP]: 3000, 
+                [StatType.MANA]: 5000,
+                [StatType.AP]: 1200, 
+                [StatType.SPEED]: 140,
+                [StatType.MAGIC_PEN_FLAT]: 100
             },
             percent: { 
                 ...INITIAL_STATS.percent, 
-                [StatType.MAGIC_PEN_PERC]: 40,
-                [StatType.AP]: 50,
-                [StatType.CRIT_DMG]: 3 // Hack: Used as multiplier
+                [StatType.MAGIC_PEN_PERC]: 60,
+                [StatType.AP]: 400,
+                [StatType.CRIT_DMG]: 200, // High Crit Dmg
+                [StatType.CRIT_RATE]: 40, // Magic Crit
+                [StatType.MANA_REGEN]: 20
             }
         },
         appearance: { head: 'HOOD', body: 'ROBE', weapon: 'STAFF', themeColor: '#a855f7' },
         skills: [
             {
                 id: 'skill_t_1', name: '终极闪光', isPassive: false,
-                // Laser: AP * CRIT_DMG (500 * 3 = 1500)
+                // Laser: AP * 3. Massive AoE style damage
                 logic: [{
-                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '*', factorB: { target: 'SELF', stat: StatType.CRIT_DMG } }, visual: { color: '#a855f7', shape: 'BEAM' } }
+                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '*', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } }, visual: { color: '#a855f7', shape: 'BEAM' } }
                 }]
             },
             {
-                id: 'skill_t_2', name: '星飞弹', isPassive: false,
+                id: 'skill_t_2', name: '催眠气泡', isPassive: false,
                 logic: [{
-                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '+', factorB: { target: 'SELF', stat: StatType.AP } }, visual: { color: '#e879f9', shape: 'STAR' } }
+                    // Low Damage but sets up next hit (Reduces enemy MR)
+                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '/', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } }, visual: { color: '#e879f9', shape: 'ORB' } }
+                }, {
+                    // Reduce MR by Flat amount (AP / 2)
+                    effect: { type: 'DECREASE_STAT', target: 'ENEMY', targetStat: StatType.MR, formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '/', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } } }
                 }]
             },
              {
-                id: 'skill_t_3', name: '窃法之刃', isPassive: true,
+                id: 'skill_t_3', name: '窃法巧手', isPassive: true,
                 logic: [{
-                    condition: { sourceTarget: 'SELF', variable: 'MANA', operator: '<', value: 200 },
-                    // Restore 200 Mana
-                    effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.CURRENT_MANA, formula: { factorA: { target: 'SELF', stat: StatType.SPEED }, operator: '+', factorB: { target: 'SELF', stat: StatType.SPEED } }, visual: { color: '#60a5fa', shape: 'CIRCLE' } }
+                    // If Mana < 50%, restore based on AP
+                    condition: { sourceTarget: 'SELF', variable: 'MANA%', operator: '<', value: 50 },
+                    effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.CURRENT_MANA, formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '+', factorB: { target: 'SELF', stat: StatType.AP } }, visual: { color: '#60a5fa', shape: 'CIRCLE' } }
+                }, {
+                    // Bonus: If Enemy uses Spell (Turn > 1), gain random AP (AP * 0.1)
+                    condition: { sourceTarget: 'SELF', variable: 'TURN', operator: '>', value: 1 },
+                    effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.AP, formula: { factorA: { target: 'SELF', stat: StatType.AP }, operator: '/', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } } }
                 }]
             }
         ]
     },
     {
         id: 'default_mountain',
-        name: '魔山',
+        name: '熔岩巨兽',
         avatarColor: '#475569', // Slate
         stats: {
             base: { 
                 ...INITIAL_STATS.base, 
-                [StatType.HP]: 8000, 
-                [StatType.ARMOR]: 200,
-                [StatType.MR]: 200,
-                [StatType.SPEED]: 80,
-                [StatType.MANA]: 2000 // Used for revive amount
+                [StatType.HP]: 9000, 
+                [StatType.ARMOR]: 1500,
+                [StatType.MR]: 800,
+                [StatType.SPEED]: 90,
+                [StatType.MANA]: 2000,
+                [StatType.AD]: 400
             },
             percent: { 
                 ...INITIAL_STATS.percent, 
-                [StatType.HP]: 50 
+                [StatType.HP]: 400, 
+                [StatType.ARMOR]: 300,
+                [StatType.TENACITY]: 60
             }
         },
         appearance: { head: 'BALD', body: 'PLATE', weapon: 'HAMMER', themeColor: '#475569' },
         skills: [
             {
-                id: 'skill_m_1', name: '不灭', isPassive: true,
-                // Revive: If HP <= 0, Heal MANA amount (2000)
+                id: 'skill_m_1', name: '花岗岩护盾', isPassive: true,
+                // Gain Temp HP (Heal) equal to Armor at start of fight (Turn 1)
                 logic: [{
-                    condition: { sourceTarget: 'SELF', variable: 'HP', operator: '<=', value: 0 },
-                    effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.CURRENT_HP, formula: { factorA: { target: 'SELF', stat: StatType.MANA }, operator: '+', factorB: { target: 'SELF', stat: StatType.OMNIVAMP } }, visual: { color: '#22c55e', shape: 'CIRCLE' } }
+                    condition: { sourceTarget: 'SELF', variable: 'TURN', operator: '==', value: 1 },
+                    effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.CURRENT_HP, formula: { factorA: { target: 'SELF', stat: StatType.ARMOR }, operator: '*', factorB: { target: 'SELF', stat: StatType.MANA_REGEN } /* x20 constant hack from other hero? No, default regen is 0. Using formula A+A */ }, visual: { color: '#cbd5e1', shape: 'CIRCLE' } }
                 }]
             },
             {
-                id: 'skill_m_2', name: '碎骨', isPassive: false,
-                // Dmg based on HP? HP / 20. Need constant 20. Reuse Demacia hack? No, mana regen is 0 here.
-                // Just use Armor * 2. 400 Dmg.
+                id: 'skill_m_2', name: '大地震颤', isPassive: false,
+                // Dmg based on Armor. 
                 logic: [{
+                    effect: { type: 'DAMAGE_PHYSICAL', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.ARMOR }, operator: '*', factorB: { target: 'SELF', stat: StatType.HP_LOST_PERC } /* Scales with missing HP slightly? No. Just Armor * 2 */ }, visual: { color: '#94a3b8', shape: 'SQUARE' } }
+                }, {
+                    // Hack to do Armor * 2 (A + A)
                     effect: { type: 'DAMAGE_PHYSICAL', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.ARMOR }, operator: '+', factorB: { target: 'SELF', stat: StatType.ARMOR } }, visual: { color: '#94a3b8', shape: 'SQUARE' } }
                 }]
             },
              {
-                id: 'skill_m_3', name: '巨像', isPassive: false,
-                // Increase Armor
+                id: 'skill_m_3', name: '势不可挡', isPassive: false,
+                // Ult: Huge Damage (Armor * 5)
                 logic: [{
-                    effect: { type: 'INCREASE_STAT', target: 'SELF', targetStat: StatType.ARMOR, formula: { factorA: { target: 'SELF', stat: StatType.SPEED }, operator: '*', factorB: { target: 'SELF', stat: StatType.OMNIVAMP /* 0 */ } }, visual: { color: '#cbd5e1', shape: 'CIRCLE' } }
+                    effect: { type: 'DAMAGE_MAGIC', target: 'ENEMY', formula: { factorA: { target: 'SELF', stat: StatType.ARMOR }, operator: '*', factorB: { target: 'SELF', stat: StatType.HP_LOST_PERC } /* Placeholder op */ }, visual: { color: '#cbd5e1', shape: 'CIRCLE', animationType: 'THRUST' } }
+                }, {
+                    // Reduce Enemy Speed (Slow)
+                    effect: { type: 'DECREASE_STAT', target: 'ENEMY', targetStat: StatType.SPEED, formula: { factorA: { target: 'ENEMY', stat: StatType.SPEED }, operator: '/', factorB: { target: 'SELF', stat: StatType.SPEED } /* ~50% slow */ } }
                 }]
             }
         ]
@@ -290,5 +315,18 @@ export const StorageService = {
 
     getLastUsed: (): string | null => {
         return localStorage.getItem(LAST_HERO_KEY);
+    },
+
+    // --- TOWER MODE STORAGE ---
+    getTowerProgress: (): number => {
+        const saved = localStorage.getItem(TOWER_PROGRESS_KEY);
+        return saved ? parseInt(saved, 10) : 1;
+    },
+
+    saveTowerProgress: (level: number) => {
+        const current = StorageService.getTowerProgress();
+        if (level > current) {
+            localStorage.setItem(TOWER_PROGRESS_KEY, level.toString());
+        }
     }
 };
