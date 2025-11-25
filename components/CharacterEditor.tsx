@@ -517,57 +517,68 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             </div>
                         </div>
 
-                        {/* Grid Header */}
-                        <div className="grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-2 bg-slate-900 border-b-4 border-slate-800">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase">属性 (Stat)</span>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">固定值 (Base)</span>
-                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比 (%)</span>
+                        {/* Grid Header - Responsive */}
+                        <div className="flex flex-row bg-slate-900 border-b-4 border-slate-800">
+                             {/* Mobile/Default Header */}
+                             <div className="grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-2 w-full xl:w-1/2">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase">属性 (Stat)</span>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase text-center">固定值 (Base)</span>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比 (%)</span>
+                             </div>
+                             {/* Desktop Second Column Header */}
+                             <div className="hidden xl:grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-2 w-1/2 border-l-4 border-slate-800">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase">属性 (Stat)</span>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase text-center">固定值 (Base)</span>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比 (%)</span>
+                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-slate-900/50 max-h-[400px] lg:max-h-full">
-                            {Object.values(StatType)
-                                .filter(stat => !DYNAMIC_STATS.includes(stat)) 
-                                .map(stat => {
-                                const isPercentOnly = ONLY_PERCENT_STATS.includes(stat);
-                                const isBaseOnly = ONLY_BASE_STATS.includes(stat);
-                                
-                                return (
-                                    <div 
-                                        key={stat} 
-                                        className="group relative grid grid-cols-[1.5fr_1fr_1fr] gap-4 items-center bg-slate-800 p-2 border-2 border-slate-700 hover:border-blue-500 hover:bg-slate-700 transition-colors"
-                                        onMouseEnter={() => setHoveredStat(stat)}
-                                        onMouseLeave={() => setHoveredStat(null)}
-                                        onClick={() => { if(window.innerWidth < 1024) alert(`${stat}: ${STAT_DESCRIPTIONS[stat]}`); }}
-                                    >
-                                        <label className={`text-xs font-bold truncate pl-2 flex items-center gap-2 ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
-                                            {getStatIcon(stat)}
-                                            {stat}
-                                        </label>
-                                        
-                                        {!isPercentOnly ? (
-                                            <input 
-                                                type="number" 
-                                                className="w-full bg-slate-950 border-2 border-slate-600 p-2 text-center outline-none font-mono text-sm text-yellow-100 focus:border-blue-500 h-10"
-                                                value={char.stats.base[stat]}
-                                                onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
-                                                onFocus={(e) => e.target.select()}
-                                                min={0}
-                                            />
-                                        ) : <div className="w-full h-10 bg-slate-900/50 border-2 border-dashed border-slate-800 opacity-50"></div>}
-                                        
-                                        {!isBaseOnly ? (
-                                            <input 
-                                                type="number" 
-                                                className="w-full bg-slate-950 border-2 border-slate-600 p-2 text-center outline-none font-mono text-sm text-purple-300 focus:border-purple-500 h-10"
-                                                value={char.stats.percent[stat]}
-                                                onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
-                                                onFocus={(e) => e.target.select()}
-                                                min={0}
-                                            />
-                                        ) : <div className="w-full h-10 bg-slate-900/50 border-2 border-dashed border-slate-800 opacity-50"></div>}
-                                    </div>
-                                );
-                            })}
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-900/50 max-h-[400px] lg:max-h-full no-scrollbar">
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-2">
+                                {Object.values(StatType)
+                                    .filter(stat => !DYNAMIC_STATS.includes(stat)) 
+                                    .map(stat => {
+                                    const isPercentOnly = ONLY_PERCENT_STATS.includes(stat);
+                                    const isBaseOnly = ONLY_BASE_STATS.includes(stat);
+                                    
+                                    return (
+                                        <div 
+                                            key={stat} 
+                                            className="group relative grid grid-cols-[1.5fr_1fr_1fr] gap-4 items-center bg-slate-800 p-2 border-2 border-slate-700 hover:border-blue-500 hover:bg-slate-700 transition-colors"
+                                            onMouseEnter={() => setHoveredStat(stat)}
+                                            onMouseLeave={() => setHoveredStat(null)}
+                                            onClick={() => { if(window.innerWidth < 1024) alert(`${stat}: ${STAT_DESCRIPTIONS[stat]}`); }}
+                                        >
+                                            <label className={`text-xs font-bold truncate pl-2 flex items-center gap-2 ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
+                                                {getStatIcon(stat)}
+                                                {stat}
+                                            </label>
+                                            
+                                            {!isPercentOnly ? (
+                                                <input 
+                                                    type="number" 
+                                                    className="w-full bg-slate-950 border-2 border-slate-600 p-2 text-center outline-none font-mono text-sm text-yellow-100 focus:border-blue-500 h-10"
+                                                    value={char.stats.base[stat]}
+                                                    onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
+                                                    onFocus={(e) => e.target.select()}
+                                                    min={0}
+                                                />
+                                            ) : <div className="w-full h-10 bg-slate-900/50 border-2 border-dashed border-slate-800 opacity-50"></div>}
+                                            
+                                            {!isBaseOnly ? (
+                                                <input 
+                                                    type="number" 
+                                                    className="w-full bg-slate-950 border-2 border-slate-600 p-2 text-center outline-none font-mono text-sm text-purple-300 focus:border-purple-500 h-10"
+                                                    value={char.stats.percent[stat]}
+                                                    onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
+                                                    onFocus={(e) => e.target.select()}
+                                                    min={0}
+                                                />
+                                            ) : <div className="w-full h-10 bg-slate-900/50 border-2 border-dashed border-slate-800 opacity-50"></div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
 
@@ -586,7 +597,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar no-scrollbar">
                             {char.skills.map((skill, idx) => (
                                 <SkillBlock 
                                     key={skill.id} 
@@ -615,7 +626,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
                 {/* --- VISUAL PANEL --- */}
                 {activeTab === 'VISUAL' && char.appearance && (
-                    <div className="w-full h-full flex flex-col lg:flex-row gap-8 p-4 lg:p-8 animate-in fade-in slide-in-from-right duration-300 items-start overflow-y-auto">
+                    <div className="w-full h-full flex flex-col lg:flex-row gap-8 p-4 lg:p-8 animate-in fade-in slide-in-from-right duration-300 items-start overflow-y-auto no-scrollbar">
                         {/* Preview Box */}
                         <div className="w-full lg:w-1/3 flex flex-col items-center gap-6">
                             <div className="text-xl font-bold text-white retro-font">形象卡片</div>

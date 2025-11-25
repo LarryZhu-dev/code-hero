@@ -20,17 +20,29 @@
   }
 }
 
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
 .retro-font {
   font-family: 'Fusion Pixel', 'Press Start 2P', cursive;
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar - kept for areas where scrolling is explicit and needed (like lists) */
 ::-webkit-scrollbar {
   width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-track {
   background: #0f172a;
   border-left: 2px solid #334155;
+  border-top: 2px solid #334155;
 }
 ::-webkit-scrollbar-thumb {
   background: #475569;

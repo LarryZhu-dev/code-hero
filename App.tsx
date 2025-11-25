@@ -1131,7 +1131,7 @@ const App: React.FC = () => {
 
     const StatPanel: React.FC<{ entity: BattleEntity, isRight?: boolean }> = ({ entity, isRight }) => {
         return (
-            <div className={`absolute top-20 bottom-24 w-64 ${isRight ? 'right-4' : 'left-4'} bg-slate-900 border-4 border-slate-700 p-4 flex flex-col z-20 overflow-y-auto custom-scrollbar shadow-2xl`}>
+            <div className={`absolute top-20 bottom-24 w-64 ${isRight ? 'right-4' : 'left-4'} bg-slate-900 border-4 border-slate-700 p-4 flex flex-col z-20 overflow-y-auto custom-scrollbar no-scrollbar shadow-2xl`}>
                 <div className="flex items-center gap-3 mb-4 border-b-4 border-slate-700 pb-2">
                     <div className={`border-4 overflow-hidden ${isRight ? 'border-red-500' : 'border-blue-500'}`}>
                         <HeroAvatar appearance={entity.config.appearance!} size={48} bgColor={entity.config.avatarColor} />
@@ -1718,7 +1718,7 @@ const App: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Mobile Stat Toggle */}
+                        {/* Mobile Stat Toggle - Hidden on large screens */}
                         <button 
                             className="md:hidden absolute top-4 left-4 z-40 bg-slate-800 border-2 border-slate-600 p-2 text-white shadow-lg"
                             onClick={() => setShowMobileStats(true)}
@@ -1761,7 +1761,7 @@ const App: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="w-full max-w-[800px] aspect-[2/1] mx-auto z-0 mt-8 md:mt-0">
+                        <div className="w-full max-w-[800px] 2xl:max-w-[1200px] aspect-[2/1] mx-auto z-0 mt-8 md:mt-0 transition-all">
                             <BattleScene 
                                 gameState={battleState} 
                                 onAnimationsComplete={handleAnimationComplete}
@@ -1852,7 +1852,7 @@ const App: React.FC = () => {
                                             </div>
                                         )}
 
-                                        <div className="flex justify-center items-center gap-2 md:gap-4 overflow-x-auto pb-4 md:pb-0 px-4 w-full md:w-auto">
+                                        <div className="flex justify-center items-center gap-2 md:gap-4 overflow-x-auto pb-4 md:pb-0 px-4 w-full md:w-auto no-scrollbar">
                                             {(() => {
                                                 const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                 const sortedSkills = getSortedSkills(myEntity);
@@ -1948,7 +1948,7 @@ const App: React.FC = () => {
                                 BATTLE LOG
                             </h3>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs custom-scrollbar bg-slate-950">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs custom-scrollbar no-scrollbar bg-slate-950">
                             {battleState.log.map((entry, i) => (
                                 <div key={i} className="border-l-4 border-slate-800 pl-3 py-1 text-slate-400 hover:border-blue-500 hover:text-slate-200 transition-colors">
                                     <span className="opacity-30 mr-2">[{String(i+1).padStart(2, '0')}]</span>
