@@ -89,9 +89,15 @@ const App: React.FC = () => {
 
     const [inspectedEntity, setInspectedEntity] = useState<BattleEntity | null>(null);
     const processingTurnRef = useRef(false);
+    const battleStateRef = useRef<BattleState | null>(null);
     
     const myRoleRef = useRef<UserRole>('NONE');
     const handleMessageRef = useRef<((action: string, data: any) => void) | null>(null);
+
+    // Keep ref updated for message handler access
+    useEffect(() => {
+        battleStateRef.current = battleState;
+    }, [battleState]);
 
     // Load Last Used Hero
     useEffect(() => {
@@ -106,6 +112,38 @@ const App: React.FC = () => {
     useEffect(() => {
         myRoleRef.current = myRole;
     }, [myRole]);
+
+    // Tab Notification for Challenges
+    useEffect(() => {
+        if (!incomingChallenge) return;
+        
+        const originalTitle = document.title;
+        let interval: any;
+
+        // If tab is hidden, flash the title
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                let flash = false;
+                interval = setInterval(() => {
+                    document.title = flash ? "⚔️ 新挑战! ⚔️" : originalTitle;
+                    flash = !flash;
+                }, 1000);
+            } else {
+                clearInterval(interval);
+                document.title = originalTitle;
+            }
+        };
+
+        // Check initially
+        handleVisibilityChange();
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            clearInterval(interval);
+            document.title = originalTitle;
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [incomingChallenge]);
 
     // Public Hall Heartbeat
     useEffect(() => {
@@ -397,6 +435,35 @@ const App: React.FC = () => {
         }
         else if (action === 'leave') {
             const leavingId = data.id;
+
+            // 1. Check if an active battle should end immediately
+            const currentBattle = battleStateRef.current;
+            if (currentBattle && currentBattle.mode === 'ONLINE_PVP' && !currentBattle.winnerId) {
+                const isP1 = currentBattle.p1.id === leavingId;
+                const isP2 = currentBattle.p2.id === leavingId;
+
+                if (isP1 || isP2) {
+                    const winnerId = isP1 ? currentBattle.p2.id : currentBattle.p1.id;
+                    const winnerName = isP1 ? currentBattle.p2.config.name : currentBattle.p1.config.name;
+                    const leaverName = isP1 ? currentBattle.p1.config.name : currentBattle.p2.config.name;
+
+                    const newState = { ...currentBattle };
+                    newState.phase = 'FINISHED';
+                    newState.winnerId = winnerId;
+                    newState.log.push(`${leaverName} 断开连接，${winnerName} 自动获胜！`);
+                    
+                    setBattleState(newState);
+                    // Force animation complete check to stop turns
+                    processingTurnRef.current = false;
+                    
+                    // Only one remaining client needs to broadcast, or both can (idempotent)
+                    if (playerId === winnerId) {
+                        net.sendState(newState);
+                    }
+                }
+            }
+
+            // 2. Lobby Logic
             if (leavingId === challengerId || leavingId === opponentId) {
                 setOpponentLeft(true);
             }
@@ -737,6 +804,8 @@ const App: React.FC = () => {
         if (battleState && battleState.timeLeft === 0 && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId) {
             if (battleState.mode === 'ONLINE_PVP' && myRole !== 'HOST') return;
             if (battleState.mode === 'LOCAL_BOT' || myRole === 'HOST') {
+                 // Force unlock processing if previous turn somehow got stuck
+                 processingTurnRef.current = false;
                  executeTurn('basic_attack');
             }
         }
@@ -1360,17 +1429,7 @@ const App: React.FC = () => {
                                             onClick={() => { 
                                                 net.disconnect(); 
                                                 if(battleOrigin === 'PUBLIC') enterPublicHall(); 
-                                                else if (battleOrigin === 'PRIVATE') setupLobbyState(); // Return to room logic depends on if we stay in room?
-                                                // Actually, for Private, we stay in Lobby context usually? 
-                                                // The current logic was "Return to List".
-                                                // New spec: "Return to Room" for Private, "Return to Hall" for Public.
-                                                
-                                                if (battleOrigin === 'PUBLIC') {
-                                                    enterPublicHall();
-                                                } else {
-                                                    // Re-enter lobby flow for same room ID
-                                                    joinPrivateRoom(); 
-                                                }
+                                                else if (battleOrigin === 'PRIVATE') joinPrivateRoom();
                                             }} 
                                             className="pixel-btn pixel-btn-secondary flex items-center justify-center gap-2"
                                         >
