@@ -1,8 +1,9 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
-import { BattleState, StatType, BattleEvent, VisualShape } from '../types';
+import { BattleState, StatType, BattleEvent, VisualShape, AppearanceConfig } from '../types';
 import { getTotalStat } from '../utils/gameEngine';
+import { drawBody, drawWeapon, getDefaultAppearance, classifyHero } from '../utils/heroSystem';
 
 interface Props {
     gameState: BattleState;
@@ -95,7 +96,8 @@ class PixelEntity {
     characterGroup: PIXI.Container;
     bodyGroup: PIXI.Container;
     handGroup: PIXI.Container;
-    graphics: PIXI.Graphics;
+    graphics: PIXI.Graphics; // Body Graphics
+    weaponGraphics: PIXI.Graphics; // Weapon Graphics
     shadow: PIXI.Graphics;
     hpBar: PIXI.Container;
     
@@ -106,21 +108,20 @@ class PixelEntity {
     currentMana: number;
     targetHp: number;
     targetMana: number;
-    isMage: boolean;
+    appearance: AppearanceConfig;
     isFacingLeft: boolean;
 
     // Animation State
     animOffset: number = Math.random() * 100;
     
     constructor(
-        colorHex: string, 
+        appearance: AppearanceConfig, 
         x: number, 
         y: number, 
         maxHp: number, 
         maxMana: number, 
         isFacingLeft: boolean,
         id: string,
-        isMage: boolean,
         onClick?: (id: string) => void
     ) {
         this.container = new PIXI.Container();
@@ -139,7 +140,7 @@ class PixelEntity {
         this.currentMana = maxMana;
         this.targetHp = maxHp;
         this.targetMana = maxMana;
-        this.isMage = isMage;
+        this.appearance = appearance;
         this.isFacingLeft = isFacingLeft;
 
         // Shadow
@@ -164,10 +165,14 @@ class PixelEntity {
         this.handGroup.y = -9 * 4; // Shoulder y
         this.characterGroup.addChild(this.handGroup);
 
-        // Main Graphics (Shared logic helper, drawing to body/hand separately)
+        // Graphics initialization
         this.graphics = new PIXI.Graphics(); 
+        this.bodyGroup.addChild(this.graphics);
         
-        this.drawCharacter(colorHex);
+        this.weaponGraphics = new PIXI.Graphics();
+        this.handGroup.addChild(this.weaponGraphics);
+        
+        this.drawCharacter();
 
         // HP Bar Group
         this.hpBar = new PIXI.Container();
@@ -176,73 +181,18 @@ class PixelEntity {
         this.updateBars();
     }
 
-    drawCharacter(colorHex: string) {
-        const hex = colorHex.startsWith('#') ? parseInt(colorHex.slice(1), 16) : 0x3b82f6;
-        const dark = 0x1e293b;
-        const skin = 0xffdbac;
-        const S = 4; // Pixel Scale
-
-        // Clear previous
-        this.bodyGroup.removeChildren();
-        this.handGroup.removeChildren();
-
-        const bg = new PIXI.Graphics();
-        this.bodyGroup.addChild(bg);
-
-        // -- BODY DRAWING --
-        // Legs
-        bg.rect(-4 * S, 0, 3 * S, 6 * S).fill(dark); // Left Leg
-        bg.rect(1 * S, 0, 3 * S, 6 * S).fill(dark);  // Right Leg
-
-        if (this.isMage) {
-            // ROBE Body
-            bg.rect(-5 * S, -8 * S, 10 * S, 9 * S).fill(hex); 
-            bg.rect(-2 * S, -8 * S, 4 * S, 9 * S).fill(0x334155); // Inner robe strip
-            
-            // Head (Hooded)
-            bg.rect(-4 * S, -14 * S, 8 * S, 6 * S).fill(skin); // Face
-            bg.rect(-5 * S, -16 * S, 10 * S, 4 * S).fill(hex); // Hat Brim
-            bg.rect(-3 * S, -20 * S, 6 * S, 4 * S).fill(hex); // Hat Top
-            bg.rect(-1 * S, -22 * S, 2 * S, 2 * S).fill(hex); // Hat Tip
-        } else {
-            // ARMOR Body
-            bg.rect(-5 * S, -8 * S, 10 * S, 8 * S).fill(hex); 
-            bg.rect(-3 * S, -6 * S, 6 * S, 4 * S).fill(0xffffff); // Chest Highlight
-            
-            // Head (Helmet)
-            bg.rect(-4 * S, -14 * S, 8 * S, 6 * S).fill(skin); // Face
-            bg.rect(-4 * S, -16 * S, 8 * S, 4 * S).fill(hex); // Helmet Top
-            bg.rect(-5 * S, -15 * S, 1 * S, 6 * S).fill(hex); // Helmet Side L
-            bg.rect(4 * S, -15 * S, 1 * S, 6 * S).fill(hex); // Helmet Side R
+    drawCharacter() {
+        drawBody(this.graphics, this.appearance);
+        drawWeapon(this.weaponGraphics, this.appearance);
+        
+        // Adjust weapon position/rotation baseline
+        // Rotate sword slightly forward by default
+        if (this.appearance.weapon === 'SWORD' || this.appearance.weapon === 'AXE' || this.appearance.weapon === 'HAMMER') {
+            this.weaponGraphics.rotation = 0.5;
+            this.weaponGraphics.x = 2 * 4;
+        } else if (this.appearance.weapon === 'BOW') {
+             this.weaponGraphics.x = 4 * 4;
         }
-
-        // Eyes (Common)
-        bg.rect(-2 * S, -12 * S, 1 * S, 1 * S).fill(0x000000);
-        bg.rect(1 * S, -12 * S, 1 * S, 1 * S).fill(0x000000);
-
-        // -- HAND/WEAPON DRAWING --
-        const hg = new PIXI.Graphics();
-        this.handGroup.addChild(hg);
-
-        if (this.isMage) {
-            // Staff
-            hg.rect(0, 0, 3 * S, 3 * S).fill(skin);
-            hg.rect(1 * S, -6 * S, 1 * S, 14 * S).fill(0x8b4513);
-            hg.circle(1.5 * S, -6 * S, 2.5 * S).fill(0x3b82f6);
-            hg.circle(1.5 * S, -6 * S, 1.5 * S).fill(0xbfdbfe); // Shine
-        } else {
-            // Sword
-            hg.rect(0, 0, 3 * S, 3 * S).fill(skin);
-            hg.rect(1 * S, -6 * S, 2 * S, 10 * S).fill(0x94a3b8); // Blade
-            hg.rect(0 * S, 0 * S, 4 * S, 1 * S).fill(0x475569); // Guard
-            hg.rect(1.5 * S, 1 * S, 1 * S, 3 * S).fill(0x8b4513); // Hilt
-            
-            // Rotate sword slightly forward
-            hg.rotation = 0.5;
-            hg.x = 2 * S;
-        }
-
-        this.graphics = bg;
     }
 
     updateBars() {
@@ -288,7 +238,8 @@ class PixelEntity {
         this.characterGroup.y = -24 + yOffset;
         this.shadow.scale.set(1 + Math.sin((time + this.animOffset) * 0.1) * 0.1);
         
-        if (this.isMage) {
+        const wType = this.appearance.weapon;
+        if (wType === 'STAFF' || wType === 'BOW') {
             this.handGroup.rotation = Math.sin((time + this.animOffset) * 0.05) * 0.1;
         } else {
              this.handGroup.rotation = Math.sin((time + this.animOffset) * 0.1) * 0.05;
@@ -297,8 +248,9 @@ class PixelEntity {
 
     async animateAttack() {
         const startRot = this.handGroup.rotation;
+        const wType = this.appearance.weapon;
         
-        if (this.isMage) {
+        if (wType === 'STAFF') {
             for(let i=0; i<10; i++) {
                 this.handGroup.rotation -= 0.1; 
                 await new Promise(r => setTimeout(r, 16));
@@ -308,7 +260,16 @@ class PixelEntity {
                 this.handGroup.rotation += 0.1; 
                 await new Promise(r => setTimeout(r, 16));
             }
+        } else if (wType === 'BOW') {
+             for(let i=0; i<10; i++) {
+                this.handGroup.x -= 2; // Pull back
+                await new Promise(r => setTimeout(r, 16));
+            }
+            await new Promise(r => setTimeout(r, 100));
+            this.handGroup.x += 20; // Release
+            await new Promise(r => setTimeout(r, 16));
         } else {
+            // Melee Swing
             for(let i=0; i<5; i++) {
                 this.handGroup.rotation -= 0.2;
                 await new Promise(r => setTimeout(r, 16));
@@ -323,6 +284,7 @@ class PixelEntity {
             }
         }
         this.handGroup.rotation = startRot;
+        if (wType === 'BOW') this.handGroup.x = -2 * 4; // Reset
     }
 
     async animateCast() {
@@ -834,19 +796,20 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 // -- Characters --
                 const maxHp1 = getTotalStat(gameState.p1, StatType.HP);
                 const maxMana1 = getTotalStat(gameState.p1, StatType.MANA);
-                const p1AD = getTotalStat(gameState.p1, StatType.AD);
-                const p1AP = getTotalStat(gameState.p1, StatType.AP);
-                const p1IsMage = p1AP >= (p1AD * 2) && p1AP > 0;
-
-                const v1 = new PixelEntity(gameState.p1.config.avatarColor, 200, 300, maxHp1, maxMana1, false, gameState.p1.id, p1IsMage, onEntityClick);
+                
+                // Use default appearance if missing (migration safety)
+                const role1 = classifyHero(gameState.p1.config);
+                const app1 = gameState.p1.config.appearance || getDefaultAppearance(role1, gameState.p1.config.avatarColor);
+                
+                const v1 = new PixelEntity(app1, 200, 300, maxHp1, maxMana1, false, gameState.p1.id, onEntityClick);
                 
                 const maxHp2 = getTotalStat(gameState.p2, StatType.HP);
                 const maxMana2 = getTotalStat(gameState.p2, StatType.MANA);
-                const p2AD = getTotalStat(gameState.p2, StatType.AD);
-                const p2AP = getTotalStat(gameState.p2, StatType.AP);
-                const p2IsMage = p2AP >= (p2AD * 2) && p2AP > 0;
+                
+                const role2 = classifyHero(gameState.p2.config);
+                const app2 = gameState.p2.config.appearance || getDefaultAppearance(role2, gameState.p2.config.avatarColor);
 
-                const v2 = new PixelEntity(gameState.p2.config.avatarColor, 600, 300, maxHp2, maxMana2, true, gameState.p2.id, p2IsMage, onEntityClick);
+                const v2 = new PixelEntity(app2, 600, 300, maxHp2, maxMana2, true, gameState.p2.id, onEntityClick);
 
                 // Sync initial state
                 v1.currentHp = gameState.p1.currentHp;

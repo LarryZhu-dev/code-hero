@@ -119,12 +119,29 @@ export interface Skill {
     logic: SkillLogic[];
 }
 
+export type HeadType = 'KNIGHT' | 'HOOD' | 'WILD' | 'BANDANA' | 'CROWN' | 'BALD' | 'HORNED';
+export type BodyType = 'PLATE' | 'ROBE' | 'LEATHER' | 'VEST';
+export type WeaponType = 'SWORD' | 'STAFF' | 'DAGGER' | 'HAMMER' | 'BOW' | 'SPEAR' | 'AXE';
+
+export interface AppearanceConfig {
+    head: HeadType;
+    body: BodyType;
+    weapon: WeaponType;
+    themeColor: string; // Hex
+}
+
+export type HeroRole = 
+    'TANK' | 'JUGGERNAUT' | 'WARRIOR' | 'RANGER' | 'ASSASSIN' | 
+    'MAGE' | 'BURST_MAGE' | 'WARLOCK' | 'UNDYING_MAGE' | 'BLOOD_DEMON' | 'UNKNOWN';
+
 export interface CharacterConfig {
     id: string;
     name: string;
-    avatarColor: string; // Hex code for placeholder
+    avatarColor: string; // Legacy: used as Theme Color
     stats: CharacterStats;
     skills: Skill[];
+    appearance?: AppearanceConfig;
+    role?: HeroRole; // Calculated automatically
 }
 
 export type BattleMode = 'LOCAL_BOT' | 'ONLINE_PVP';
