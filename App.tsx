@@ -51,6 +51,12 @@ interface PublicPlayer {
     lastSeen: number;
 }
 
+interface ChallengeRequest {
+    fromId: string;
+    name: string;
+    timestamp: number;
+}
+
 const App: React.FC = () => {
     const [view, setView] = useState<AppView>('MENU');
     const [myChar, setMyChar] = useState<CharacterConfig | null>(null);
@@ -70,7 +76,7 @@ const App: React.FC = () => {
     
     // Public Hall State
     const [hallPlayers, setHallPlayers] = useState<PublicPlayer[]>([]);
-    const [incomingChallenge, setIncomingChallenge] = useState<{fromId: string, name: string} | null>(null);
+    const [incomingChallenges, setIncomingChallenges] = useState<ChallengeRequest[]>([]);
     const [challengeSentTo, setChallengeSentTo] = useState<string | null>(null);
 
     // Battle Lobby State
@@ -115,7 +121,7 @@ const App: React.FC = () => {
 
     // Tab Notification for Challenges
     useEffect(() => {
-        if (!incomingChallenge) return;
+        if (incomingChallenges.length === 0) return;
         
         const originalTitle = document.title;
         let interval: any;
@@ -125,7 +131,7 @@ const App: React.FC = () => {
             if (document.hidden) {
                 let flash = false;
                 interval = setInterval(() => {
-                    document.title = flash ? "⚔️ 新挑战! ⚔️" : originalTitle;
+                    document.title = flash ? `⚔️ ${incomingChallenges.length} 个新挑战! ⚔️` : originalTitle;
                     flash = !flash;
                 }, 1000);
             } else {
@@ -143,7 +149,17 @@ const App: React.FC = () => {
             document.title = originalTitle;
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [incomingChallenge]);
+    }, [incomingChallenges.length]);
+
+    // Challenge Timeout (Receiver)
+    useEffect(() => {
+        if (incomingChallenges.length === 0) return;
+        const timer = setInterval(() => {
+            const now = Date.now();
+            setIncomingChallenges(prev => prev.filter(c => now - c.timestamp < 60000));
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [incomingChallenges.length]);
 
     // Public Hall Heartbeat
     useEffect(() => {
@@ -201,7 +217,7 @@ const App: React.FC = () => {
         net.disconnect();
         setBattleOrigin('PUBLIC');
         setHallPlayers([]);
-        setIncomingChallenge(null);
+        setIncomingChallenges([]);
         setChallengeSentTo(null);
         setView('PUBLIC_HALL');
         
@@ -260,22 +276,29 @@ const App: React.FC = () => {
         if (challengeSentTo) return;
         setChallengeSentTo(targetId);
         net.sendChallenge(targetId, myChar?.name || 'Player');
+        // Timeout for outgoing challenge (60s)
         setTimeout(() => {
             if (view === 'PUBLIC_HALL' && challengeSentTo === targetId) {
                 setChallengeSentTo(null);
-                // Maybe show timeout toast
+                // Optionally could show a toast here "Challenge timed out"
             }
-        }, 10000);
+        }, 60000);
     };
 
-    const handleRespondChallenge = (accept: boolean) => {
-        if (!incomingChallenge) return;
-        
+    const handleRespondChallenge = (targetChallenge: ChallengeRequest, accept: boolean) => {
         if (accept) {
             // Generate match room ID
             const matchRoomId = `match_${Math.random().toString(36).substr(2, 9)}`;
-            net.respondChallenge(incomingChallenge.fromId, true, matchRoomId);
+            net.respondChallenge(targetChallenge.fromId, true, matchRoomId);
             
+            // Reject other pending challenges
+            incomingChallenges.forEach(c => {
+                if (c.fromId !== targetChallenge.fromId) {
+                    net.respondChallenge(c.fromId, false);
+                }
+            });
+            setIncomingChallenges([]);
+
             // Switch to Lobby Mode immediately
             net.disconnect();
             setRoomId(matchRoomId);
@@ -291,9 +314,9 @@ const App: React.FC = () => {
             });
 
         } else {
-            net.respondChallenge(incomingChallenge.fromId, false);
+            net.respondChallenge(targetChallenge.fromId, false);
+            setIncomingChallenges(prev => prev.filter(c => c.fromId !== targetChallenge.fromId));
         }
-        setIncomingChallenge(null);
     };
 
     const handleMessage = useCallback((action: string, data: any) => {
@@ -317,7 +340,11 @@ const App: React.FC = () => {
             }
             else if (action === 'challenge') {
                 if (data.targetId === playerId) {
-                    setIncomingChallenge({ fromId: data.sender, name: data.challengerName });
+                    setIncomingChallenges(prev => {
+                        // Prevent duplicates
+                        if (prev.find(c => c.fromId === data.sender)) return prev;
+                        return [...prev, { fromId: data.sender, name: data.challengerName, timestamp: Date.now() }];
+                    });
                 }
             }
             else if (action === 'challenge_response') {
@@ -339,7 +366,7 @@ const App: React.FC = () => {
                              net.publish('join_request', { id: playerId, name: myChar?.name, char: myChar });
                         });
                     } else {
-                        alert("对方拒绝了挑战");
+                        // alert("对方拒绝了挑战"); // Less intrusive UI preferred
                     }
                 }
             }
@@ -996,43 +1023,67 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* CHALLENGE POPUP */}
-                {incomingChallenge && (
-                    <div className="fixed top-20 right-8 z-[70] w-80 bg-slate-900 border-4 border-yellow-500 shadow-2xl p-4 animate-in slide-in-from-right duration-300">
-                        <div className="flex items-center gap-2 mb-2 text-yellow-400 font-bold">
-                            <Swords size={20} /> 对战请求
-                        </div>
-                        <div className="text-white mb-4">
-                            玩家 <span className="font-bold text-yellow-200">{incomingChallenge.name}</span> 向你发起了挑战！
-                        </div>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => handleRespondChallenge(true)}
-                                className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 font-bold border-2 border-green-800"
-                            >
-                                接受
-                            </button>
-                            <button 
-                                onClick={() => handleRespondChallenge(false)}
-                                className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 font-bold border-2 border-red-800"
-                            >
-                                拒绝
-                            </button>
-                        </div>
+                {/* CHALLENGE NOTIFICATIONS (STACKED) */}
+                {incomingChallenges.length > 0 && (
+                    <div className="fixed top-20 right-8 z-[70] flex flex-col gap-4 max-h-[80vh] overflow-y-auto no-scrollbar pointer-events-none">
+                        {incomingChallenges.map((challenge) => (
+                            <div key={challenge.fromId} className="w-80 bg-slate-900 border-4 border-yellow-500 shadow-2xl p-4 animate-in slide-in-from-right duration-300 pointer-events-auto">
+                                <div className="flex items-center justify-between gap-2 mb-2 text-yellow-400 font-bold">
+                                    <div className="flex items-center gap-2">
+                                        <Swords size={20} /> 对战请求
+                                    </div>
+                                    <span className="text-[10px] bg-yellow-900/50 px-1 border border-yellow-700">60s</span>
+                                </div>
+                                <div className="text-white mb-4">
+                                    玩家 <span className="font-bold text-yellow-200">{challenge.name}</span> 向你发起了挑战！
+                                </div>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => handleRespondChallenge(challenge, true)}
+                                        className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 font-bold border-2 border-green-800"
+                                    >
+                                        接受
+                                    </button>
+                                    <button 
+                                        onClick={() => handleRespondChallenge(challenge, false)}
+                                        className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 font-bold border-2 border-red-800"
+                                    >
+                                        拒绝
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
 
                 {inspectedEntity && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setInspectedEntity(null)}>
                         <div className="bg-slate-900 border-4 border-slate-700 p-6 shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                            {/* Entity Inspection Content (Simplified) */}
-                             <div className="flex justify-between items-start mb-4">
-                                <h3 className="text-xl font-bold retro-font">{inspectedEntity.config.name}</h3>
-                                <button onClick={() => setInspectedEntity(null)}><X /></button>
+                            {/* Entity Inspection Content */}
+                             <div className="flex justify-between items-start mb-4 border-b-2 border-slate-800 pb-2">
+                                <div>
+                                    <h3 className="text-xl font-bold retro-font text-white">{inspectedEntity.config.name}</h3>
+                                    <div className="text-xs text-slate-500 font-mono mt-1">
+                                        HP: {Math.floor(inspectedEntity.currentHp)}/{Math.floor(getTotalStat(inspectedEntity, StatType.HP))} | 
+                                        MP: {Math.floor(inspectedEntity.currentMana)}/{Math.floor(getTotalStat(inspectedEntity, StatType.MANA))}
+                                    </div>
+                                </div>
+                                <button onClick={() => setInspectedEntity(null)} className="text-slate-500 hover:text-white"><X /></button>
                              </div>
-                             <div className="overflow-y-auto custom-scrollbar flex-1">
-                                 {/* Full stats/skills inspection could go here */}
-                                 <p className="text-slate-400 font-mono">详细属性查看暂未完全实现...</p>
+                             <div className="overflow-y-auto custom-scrollbar flex-1 space-y-4 pr-2">
+                                 {getSortedSkills(inspectedEntity).map((skill, i) => (
+                                     <div key={skill.id} className="bg-slate-950 border-2 border-slate-800 p-3">
+                                         <div className="flex justify-between items-center mb-2">
+                                             <span className={`font-bold text-sm ${skill.id === 'basic_attack' ? 'text-yellow-400' : skill.isPassive ? 'text-indigo-400' : 'text-blue-400'}`}>
+                                                 {skill.name}
+                                             </span>
+                                             {skill.isPassive && <span className="text-[10px] bg-indigo-900 text-indigo-200 px-1">PASSIVE</span>}
+                                         </div>
+                                         <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">
+                                             {getSkillDescription(skill, inspectedEntity)}
+                                         </div>
+                                     </div>
+                                 ))}
                              </div>
                         </div>
                     </div>
@@ -1203,7 +1254,9 @@ const App: React.FC = () => {
                                                 <div className={`absolute -bottom-1 -right-1 w-3 h-3 border-2 border-slate-900 ${player.status === 'IDLE' ? 'bg-green-500' : 'bg-red-500'}`}></div>
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-white retro-font truncate">{player.name}</div>
+                                                <div className="font-bold text-white retro-font truncate">
+                                                    {player.name} <span className="text-xs text-slate-600 font-mono">#{player.id.slice(0, 6)}</span>
+                                                </div>
                                                 <div className="text-xs text-slate-500 font-mono truncate">{player.char.role || 'Warrior'}</div>
                                             </div>
                                             <button 
