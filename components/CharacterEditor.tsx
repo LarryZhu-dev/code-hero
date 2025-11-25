@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, EffectVisual, VisualShape, AppearanceConfig, HeadType, BodyType, WeaponType, AnimationType } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword, LayoutTemplate } from 'lucide-react';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword, LayoutTemplate, Sparkles } from 'lucide-react';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
 import { classifyHero, getDefaultAppearance, getRoleDisplayName, drawBody, drawWeapon } from '../utils/heroSystem';
-import { createProjectile, createAuraEffect, createParticles } from '../utils/visualEffects';
+import { createProjectile, createAuraEffect, createParticles, createSlashEffect, createMagicEffect } from '../utils/visualEffects';
 import * as PIXI from 'pixi.js';
 
 interface Props {
@@ -35,12 +35,69 @@ const styles = {
     input: "bg-slate-950/50 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-center text-yellow-200 w-20 focus:border-yellow-500 outline-none transition-colors",
 };
 
+// --- Color Utils ---
+const generateContrastingColor = (hex: string): string => {
+    // Basic Complementary Logic
+    const color = parseInt(hex.replace('#', ''), 16);
+    const r = (color >> 16) & 255;
+    const g = (color >> 8) & 255;
+    const b = color & 255;
+
+    // Convert to HSL
+    const r1 = r / 255, g1 = g / 255, b1 = b / 255;
+    const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
+    let h = 0, s, l = (max + min) / 2;
+
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r1: h = (g1 - b1) / d + (g1 < b1 ? 6 : 0); break;
+            case g1: h = (b1 - r1) / d + 2; break;
+            case b1: h = (r1 - g1) / d + 4; break;
+        }
+        h /= 6;
+    }
+
+    // Shift Hue 180deg (Complementary) or 30deg (Split)
+    // We use a slight offset to ensure it looks distinct but designed
+    h = (h + 0.5) % 1; 
+    
+    // Normalize L/S for background usage (usually darker or desaturated is good for BG)
+    // But for avatar card, we want pop.
+    l = l > 0.5 ? 0.3 : 0.7; // Invert lightness roughly
+    s = Math.min(s, 0.6); // Cap saturation
+
+    // HSL back to RGB
+    const hue2rgb = (p: number, q: number, t: number) => {
+        if(t < 0) t += 1;
+        if(t > 1) t -= 1;
+        if(t < 1/6) return p + (q - p) * 6 * t;
+        if(t < 1/2) return q;
+        if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+    }
+
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    
+    const r2 = Math.round(hue2rgb(p, q, h + 1/3) * 255);
+    const g2 = Math.round(hue2rgb(p, q, h) * 255);
+    const b2 = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+
+    const toHex = (c: number) => {
+        const hex = c.toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+    }
+
+    return `#${toHex(r2)}${toHex(g2)}${toHex(b2)}`;
+};
+
 const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> = ({ appearance, bgColor }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<PIXI.Application | null>(null);
     const appearanceRef = useRef(appearance);
 
-    // Keep appearance ref fresh for the ticker
     useEffect(() => {
         appearanceRef.current = appearance;
     }, [appearance]);
@@ -65,7 +122,6 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> 
             }
 
             if (containerRef.current) {
-                // Clear previous canvas if any
                 while(containerRef.current.firstChild) {
                     containerRef.current.removeChild(containerRef.current.firstChild);
                 }
@@ -73,17 +129,15 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> 
             }
             appRef.current = app;
 
-            // Construct Scene Graph similar to PixelEntity for accurate preview
             const mainContainer = new PIXI.Container();
             mainContainer.x = 125;
-            mainContainer.y = 150; // Center vertical
-            mainContainer.scale.set(2.5); // Adjusted scale
+            mainContainer.y = 150; 
+            mainContainer.scale.set(2.5);
             app.stage.addChild(mainContainer);
 
-            // Shadow
             const shadow = new PIXI.Graphics();
             shadow.ellipse(0, 0, 30, 8).fill({ color: 0x000000, alpha: 0.3 });
-            shadow.y = 20; // Lower shadow
+            shadow.y = 20; 
             mainContainer.addChild(shadow);
 
             const bodyGroup = new PIXI.Container();
@@ -105,11 +159,9 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> 
                 time++;
                 const appConfig = appearanceRef.current;
                 
-                // Redraw every frame to handle color changes instantly without React re-mounts
                 drawBody(bodyGraphics, appConfig);
                 drawWeapon(weaponGraphics, appConfig);
 
-                // Weapon Position Logic (Align with PixelEntity logic)
                 weaponGraphics.x = 0;
                 weaponGraphics.rotation = 0;
 
@@ -120,7 +172,6 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> 
                     weaponGraphics.x = 16;
                 }
                 
-                // Idle Animation
                 const yOffset = Math.sin(time * 0.1) * 4;
                 mainContainer.y = 150 + yOffset;
                 shadow.scale.set(1 + Math.sin(time * 0.1) * 0.1);
@@ -138,43 +189,222 @@ const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> 
         return () => {
             isCancelled = true;
             if (appRef.current) {
-                // Safe destroy: remove view to prevent context loss issues
                 appRef.current.destroy({ removeView: true });
                 appRef.current = null;
             }
         };
-    }, [bgColor]); // Re-init if BG color changes fundamentally
+    }, [bgColor]); 
 
     return <div ref={containerRef} className="w-[250px] h-[250px] rounded border border-slate-700 shadow-inner flex items-center justify-center overflow-hidden"></div>;
+};
+
+// --- Skill Visual Preview Component ---
+const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType }> = ({ effect, weapon }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const appRef = useRef<PIXI.Application | null>(null);
+    const effectRef = useRef(effect);
+    const weaponRef = useRef(weapon);
+
+    useEffect(() => {
+        effectRef.current = effect;
+        weaponRef.current = weapon;
+    }, [effect, weapon]);
+
+    useEffect(() => {
+        let isCancelled = false;
+        
+        const init = async () => {
+            if (!containerRef.current || appRef.current) return;
+            
+            const app = new PIXI.Application();
+            await app.init({ width: 320, height: 160, backgroundColor: 0x0f172a, antialias: false });
+            
+            if (isCancelled) {
+                app.destroy();
+                return;
+            }
+
+            containerRef.current.innerHTML = '';
+            containerRef.current.appendChild(app.canvas);
+            appRef.current = app;
+
+            // -- Static Scene Setup --
+            const ground = new PIXI.Graphics();
+            ground.moveTo(0, 130).lineTo(320, 130).stroke({width: 2, color: 0x334155});
+            app.stage.addChild(ground);
+
+            const casterContainer = new PIXI.Container();
+            casterContainer.x = 50; casterContainer.y = 110;
+            app.stage.addChild(casterContainer);
+
+            const targetContainer = new PIXI.Container();
+            targetContainer.x = 270; targetContainer.y = 110;
+            targetContainer.scale.x = -1; // Face left
+            app.stage.addChild(targetContainer);
+
+            // Simple Shapes for Preview
+            const drawDummy = (g: PIXI.Graphics, color: number) => {
+                g.rect(-10, -30, 20, 30).fill(color);
+                g.circle(0, -40, 10).fill(color);
+            };
+
+            const casterG = new PIXI.Graphics();
+            drawDummy(casterG, 0x3b82f6);
+            casterContainer.addChild(casterG);
+
+            const weaponG = new PIXI.Graphics();
+            casterContainer.addChild(weaponG);
+
+            const targetG = new PIXI.Graphics();
+            drawDummy(targetG, 0xef4444);
+            targetContainer.addChild(targetG);
+
+            // Animation Loop
+            let frame = 0;
+            const animate = () => {
+                if (!app.stage) return;
+                frame++;
+                
+                // Redraw weapon based on current prop
+                const wConfig: AppearanceConfig = { weapon: weaponRef.current, themeColor: '#ffffff', head: 'BALD', body: 'VEST' };
+                drawWeapon(weaponG, wConfig);
+                weaponG.x = 5; weaponG.y = -20;
+                if (wConfig.weapon === 'BOW') { weaponG.x = 10; weaponG.y = -15; }
+
+                // Periodic Trigger
+                if (frame % 120 === 30) {
+                    const eff = effectRef.current;
+                    const visual = eff.visual || { color: '#ffffff', animationType: 'CAST' };
+                    const animType = visual.animationType || 'CAST';
+
+                    // Caster Animation
+                    if (animType === 'CAST') {
+                        createMagicEffect(app, casterContainer.x, casterContainer.y - 20, 0xffffff);
+                        // Tween rotation
+                        let t = 0;
+                        const tick = (delta: PIXI.Ticker) => {
+                            t += 0.1;
+                            weaponG.rotation = -Math.sin(t) * 1;
+                            if (t > Math.PI) {
+                                weaponG.rotation = 0;
+                                app.ticker.remove(tick);
+                            }
+                        };
+                        app.ticker.add(tick);
+
+                    } else if (animType === 'THRUST') {
+                         let t = 0;
+                         const startX = casterContainer.x;
+                         const tick = () => {
+                             t += 0.2;
+                             if (t < Math.PI) {
+                                 casterContainer.x = startX + Math.sin(t) * 40;
+                             } else {
+                                 casterContainer.x = startX;
+                                 app.ticker.remove(tick);
+                             }
+                         };
+                         app.ticker.add(tick);
+                         createSlashEffect(app, targetContainer.x, targetContainer.y);
+                    } else if (animType === 'THROW') {
+                        // Simplified Throw Visual
+                        weaponG.visible = false;
+                        const clone = new PIXI.Graphics();
+                        drawWeapon(clone, wConfig);
+                        clone.x = casterContainer.x; clone.y = casterContainer.y - 20;
+                        app.stage.addChild(clone);
+                        
+                        let t = 0;
+                        const tick = () => {
+                             t += 0.05;
+                             clone.x += 10;
+                             clone.y += Math.sin(t * 10) * 5;
+                             clone.rotation += 0.5;
+                             if (clone.x > targetContainer.x) {
+                                 weaponG.visible = true;
+                                 clone.destroy();
+                                 createParticles(app, targetContainer.x, targetContainer.y - 20, 0xffffff, 5);
+                                 app.ticker.remove(tick);
+                             }
+                        };
+                        app.ticker.add(tick);
+                    }
+
+                    // Projectile / Effect
+                    const color = parseInt((visual.color || '#ffffff').replace('#', '0x'));
+                    
+                    if (eff.type.includes('DAMAGE') && animType !== 'THRUST') {
+                         // Fire Projectile
+                         const shape = visual.shape || 'CIRCLE';
+                         const traj = eff.type === 'DAMAGE_MAGIC' ? 'LINEAR' : 'PARABOLIC';
+                         createProjectile(
+                             app, 
+                             casterContainer.x + 20, casterContainer.y - 30, 
+                             targetContainer.x - 10, targetContainer.y - 30,
+                             color, 100, traj, shape, 
+                             () => {
+                                 createParticles(app, targetContainer.x, targetContainer.y - 30, color, 5);
+                             }
+                         );
+                    } else if (eff.type.includes('STAT')) {
+                        // Buff/Debuff Visual
+                        const isSelf = eff.target === 'SELF';
+                        const tx = isSelf ? casterContainer.x : targetContainer.x;
+                        const ty = isSelf ? casterContainer.y : targetContainer.y;
+                        const dir = eff.type === 'INCREASE_STAT' ? 'UP' : 'DOWN';
+                        createAuraEffect(app, tx, ty, color, dir);
+                    }
+                }
+            };
+            app.ticker.add(animate);
+        };
+        init();
+
+        return () => {
+            isCancelled = true;
+            if (appRef.current) {
+                appRef.current.destroy({ removeView: true });
+                appRef.current = null;
+            }
+        };
+    }, []);
+
+    return <div ref={containerRef} className="w-full h-full"></div>;
 };
 
 const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     const [char, setChar] = useState<CharacterConfig>(existing || {
         id: generateId(),
         name: '新角色',
-        avatarColor: '#1e293b', // Default dark background
+        avatarColor: '#1e293b', 
         stats: JSON.parse(JSON.stringify(INITIAL_STATS)),
         skills: []
     });
 
-    // Merged Tabs: CORE (Stats + Skills) and VISUAL (Appearance)
     const [activeTab, setActiveTab] = useState<'CORE' | 'VISUAL'>('CORE');
 
-    // Auto-update Role and Appearance defaults on Mount/Stat Change
+    // Auto-update Role 
     useEffect(() => {
         const role = classifyHero(char);
-        
-        // Only update if changed to avoid loop (though role calc is pure)
         if (char.role !== role) {
             setChar(prev => ({ ...prev, role }));
         }
-        
-        // If appearance is missing, set default. Use a safe default color if avatarColor is missing.
         if (!char.appearance) {
              const defaultApp = getDefaultAppearance(role, '#3b82f6'); 
              setChar(prev => ({ ...prev, appearance: defaultApp }));
         }
     }, [char.stats]);
+
+    // Auto-calculate Avatar Color based on Theme Color
+    useEffect(() => {
+        if (char.appearance?.themeColor) {
+            const contrast = generateContrastingColor(char.appearance.themeColor);
+            // Only update if significantly different to avoid loops/jitters (though calc is deterministic)
+            if (char.avatarColor !== contrast) {
+                setChar(prev => ({ ...prev, avatarColor: contrast }));
+            }
+        }
+    }, [char.appearance?.themeColor]);
 
     const usedBase = (Object.values(char.stats.base) as number[]).reduce((a, b) => a + b, 0);
     const usedPerc = (Object.values(char.stats.percent) as number[]).reduce((a, b) => a + b, 0);
@@ -237,7 +467,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     };
 
     const handleSave = () => {
-        // Ensure appearance exists
         if (!char.appearance) return;
         onSave(char);
     };
@@ -246,8 +475,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
         try {
             const json = JSON.stringify(char);
             const bytes = new TextEncoder().encode(json);
-            const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
-            const b64 = btoa(binString);
+            const b64 = btoa(String.fromCodePoint(...bytes));
             
             const blob = new Blob([b64], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
@@ -258,7 +486,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
             URL.revokeObjectURL(url);
         } catch (e) {
             console.error("Export failed", e);
-            alert("导出失败：包含不支持的字符");
+            alert("导出失败");
         }
     };
 
@@ -310,12 +538,12 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
             <div className="flex-1 flex overflow-hidden">
                 
-                {/* --- CORE PANEL (Stats & Skills & Preview) --- */}
+                {/* --- CORE PANEL (Stats & Skills) --- */}
                 {activeTab === 'CORE' && (
                 <div className="w-full h-full flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     
-                    {/* COL 1: STATS (20%) */}
-                    <div className="w-[20%] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl min-w-[200px]">
+                    {/* COL 1: STATS (30%) */}
+                    <div className="w-[30%] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl min-w-[250px]">
                         <div className="bg-slate-800/80 p-3 border-b border-slate-700 shadow-md z-10">
                             <h3 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2"><Cpu size={14}/> 基础属性</h3>
                             <div className="grid grid-cols-1 gap-2">
@@ -375,7 +603,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         </div>
                     </div>
 
-                    {/* COL 2: SKILLS (55%) */}
+                    {/* COL 2: SKILLS (70%) */}
                     <div className="flex-1 flex flex-col bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden min-w-[300px]">
                          <div className="flex justify-between items-center p-3 border-b border-slate-700 bg-slate-900/50 backdrop-blur z-10">
                             <h3 className="text-lg font-bold text-green-400 flex items-center gap-2 retro-font">
@@ -396,6 +624,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                     key={skill.id} 
                                     skill={skill}
                                     stats={char.stats}
+                                    weapon={char.appearance?.weapon || 'SWORD'}
                                     onChange={(s) => updateSkill(idx, s)} 
                                     onDelete={() => {
                                         const ns = [...char.skills];
@@ -412,60 +641,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             )}
                         </div>
                     </div>
-
-                    {/* COL 3: PREVIEW (25%) */}
-                    <div className="w-[25%] flex flex-col gap-4 min-w-[220px]">
-                        <div className="bg-slate-800/80 rounded-xl border border-slate-700 p-4 flex flex-col items-center shadow-xl">
-                            <div className="text-xs text-slate-500 font-bold mb-2 uppercase tracking-widest">实时预览</div>
-                            <div className="rounded-lg overflow-hidden border-2 border-slate-600 shadow-2xl bg-slate-950">
-                                {char.appearance && <HeroPreview appearance={char.appearance} bgColor={char.avatarColor} />}
-                            </div>
-                            <div className="mt-4 w-full space-y-3">
-                                <div className="bg-slate-900 p-2 rounded border border-slate-700 text-center">
-                                    <span className="text-[10px] text-slate-500 uppercase block mb-1">定位 Class</span>
-                                    <span className="text-sm font-bold text-yellow-400 retro-font">{getRoleDisplayName(char.role || 'UNKNOWN')}</span>
-                                </div>
-                                
-                                {/* Quick Color Adjustment */}
-                                <div className="space-y-3 bg-slate-900/50 p-2 rounded border border-slate-800">
-                                     <div className="flex justify-between items-center text-xs">
-                                        <span className="text-slate-400">装备配色</span>
-                                        <div className="flex items-center gap-2">
-                                            <input 
-                                                type="color" 
-                                                value={char.appearance?.themeColor || '#ffffff'}
-                                                onChange={(e) => setChar({ ...char, appearance: { ...char.appearance!, themeColor: e.target.value } })}
-                                                className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
-                                            />
-                                            <span className="font-mono text-[10px] text-slate-500">{char.appearance?.themeColor}</span>
-                                        </div>
-                                     </div>
-                                     <div className="w-full h-px bg-slate-800"></div>
-                                     <div className="flex justify-between items-center text-xs">
-                                        <span className="text-slate-400">卡片背景</span>
-                                        <div className="flex items-center gap-2">
-                                            <input 
-                                                type="color" 
-                                                value={char.avatarColor}
-                                                onChange={(e) => setChar({ ...char, avatarColor: e.target.value })}
-                                                className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
-                                            />
-                                            <span className="font-mono text-[10px] text-slate-500">{char.avatarColor}</span>
-                                        </div>
-                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div className="flex-1 bg-slate-900/50 rounded-xl border border-slate-800 p-4 text-[10px] text-slate-500 leading-relaxed overflow-y-auto">
-                            <p className="font-bold text-slate-400 mb-2">提示</p>
-                            <p>• 物理伤害 (Physical) 会让角色移动并攻击。</p>
-                            <p>• 魔法伤害 (Magic) 通常是原地施法。</p>
-                            <p>• "突刺/射击" 类型的动画会根据武器自动调整 (弓箭为射击，近战为突刺)。</p>
-                            <p>• 投掷武器 (Throw) 会隐藏手中武器并扔出一个复制品。</p>
-                            <p className="text-yellow-500/50 mt-2">• 如果选择了 [突刺/射击] 或 [投掷]，发射物将强制为当前武器模型。</p>
-                        </div>
-                    </div>
                 </div>
                 )}
 
@@ -475,8 +650,11 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                         {/* Preview Box */}
                         <div className="w-1/3 flex flex-col items-center gap-6">
                             <div className="text-xl font-bold text-white retro-font">形象预览</div>
-                            <div className="p-4 bg-slate-800 rounded-2xl border-2 border-slate-600 shadow-2xl">
+                            <div className="p-4 bg-slate-800 rounded-2xl border-2 border-slate-600 shadow-2xl relative">
                                 <HeroPreview appearance={char.appearance} bgColor={char.avatarColor} />
+                                <div className="absolute top-2 right-2 px-2 py-1 bg-black/50 rounded text-[10px] text-slate-400">
+                                    BG自动生成
+                                </div>
                             </div>
                         </div>
 
@@ -488,7 +666,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
 
                             <div className="space-y-6">
                                 {/* Separated Color Pickers */}
-                                <div className="flex gap-8 p-4 bg-slate-900/50 rounded-xl border border-slate-700">
+                                <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-700">
                                     <div className="flex flex-col gap-2">
                                         <label className="text-sm font-bold text-slate-300">装备配色 (Theme)</label>
                                         <div className="flex items-center gap-4">
@@ -500,21 +678,9 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                             />
                                             <span className="font-mono text-slate-400">{char.appearance.themeColor}</span>
                                         </div>
-                                        <span className="text-[10px] text-slate-500">影响武器、盔甲颜色</span>
-                                    </div>
-                                    <div className="w-px bg-slate-700"></div>
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-sm font-bold text-slate-300">卡片背景 (BG)</label>
-                                        <div className="flex items-center gap-4">
-                                            <input 
-                                                type="color" 
-                                                value={char.avatarColor}
-                                                onChange={(e) => setChar({ ...char, avatarColor: e.target.value })}
-                                                className="w-12 h-10 rounded cursor-pointer border-none bg-transparent"
-                                            />
-                                            <span className="font-mono text-slate-400">{char.avatarColor}</span>
-                                        </div>
-                                        <span className="text-[10px] text-slate-500">头像卡片的背景色，建议使用对比色</span>
+                                        <span className="text-[10px] text-slate-500">
+                                            影响武器、盔甲颜色。卡片背景色将自动根据此颜色生成对比色。
+                                        </span>
                                     </div>
                                 </div>
 
@@ -576,7 +742,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     );
 };
 
-const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, onChange, onDelete }) => {
+const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: WeaponType, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, weapon, onChange, onDelete }) => {
     const [manaCost, setManaCost] = useState(0);
     const [isDynamic, setIsDynamic] = useState(false);
     const [expandedVisual, setExpandedVisual] = useState<number | null>(null);
@@ -711,7 +877,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                     onClick={() => setExpandedVisual(expandedVisual === i ? null : i)}
                                     className={`text-[9px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${expandedVisual === i ? 'bg-blue-900 text-blue-300' : 'bg-slate-800 text-slate-500 hover:text-blue-300'}`}
                                 >
-                                    <Palette size={10}/> 特效
+                                    <Sparkles size={10}/> 特效预览
                                 </button>
                                 <button 
                                     className="text-slate-600 hover:text-red-400 p-0.5 rounded hover:bg-red-950/30 transition-all"
@@ -913,12 +1079,12 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                 </div>
                             </div>
 
-                            {/* Visual Configuration Panel */}
+                            {/* Visual Configuration Panel & Preview */}
                             {expandedVisual === i && (
-                                <div className="mt-2 pl-4 flex gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                                    <div className="flex-1 bg-slate-900 p-2 rounded border border-slate-700 flex flex-col gap-2">
+                                <div className="mt-2 pl-4 flex gap-4 animate-in fade-in slide-in-from-top-2 duration-200 h-40">
+                                    <div className="w-1/2 bg-slate-900 p-2 rounded border border-slate-700 flex flex-col gap-2 overflow-y-auto">
                                         <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                                            <span className="text-[10px] font-bold text-slate-400">视觉特效</span>
+                                            <span className="text-[10px] font-bold text-slate-400">视觉配置</span>
                                         </div>
 
                                         <div className="flex items-center gap-2">
@@ -962,9 +1128,15 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                         )}
                                         {isWeaponAnim && (
                                             <div className="text-[10px] text-slate-500 italic p-1 bg-slate-800 rounded">
-                                                使用当前武器模型攻击，无自定义发射物。
+                                                使用当前武器模型攻击
                                             </div>
                                         )}
+                                    </div>
+                                    
+                                    {/* Preview Window */}
+                                    <div className="w-1/2 bg-slate-950 rounded border border-slate-800 overflow-hidden flex items-center justify-center shadow-inner relative">
+                                        <div className="absolute top-1 right-1 text-[8px] text-slate-600 font-mono z-10">PREVIEW</div>
+                                        <SkillVisualPreview effect={branch.effect} weapon={weapon} />
                                     </div>
                                 </div>
                             )}
