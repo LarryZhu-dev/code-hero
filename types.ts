@@ -22,6 +22,7 @@ export enum StatType {
     CURRENT_HP_PERC = '当前生命百分比',
     HP_LOST = '已损生命值',
     HP_LOST_PERC = '已损生命百分比',
+    CURRENT_MANA = '当前法力值',
 }
 
 // Stats that are calculated dynamically and should not be edited in the character stats panel
@@ -29,7 +30,8 @@ export const DYNAMIC_STATS = [
     StatType.CURRENT_HP,
     StatType.CURRENT_HP_PERC,
     StatType.HP_LOST,
-    StatType.HP_LOST_PERC
+    StatType.HP_LOST_PERC,
+    StatType.CURRENT_MANA
 ];
 
 // Stats that CANNOT have percentage points allocated (Raw numbers only)
@@ -75,7 +77,7 @@ export interface Condition {
     value: number;
 }
 
-export type EffectType = 'DAMAGE_PHYSICAL' | 'DAMAGE_MAGIC' | 'HEAL' | 'GAIN_MANA' | 'BUFF_STAT';
+export type EffectType = 'DAMAGE_PHYSICAL' | 'DAMAGE_MAGIC' | 'INCREASE_STAT' | 'DECREASE_STAT';
 export type FormulaOp = '+' | '-' | '*' | '/';
 
 export interface FormulaFactor {
@@ -92,6 +94,7 @@ export interface Formula {
 export interface Effect {
     type: EffectType;
     target: TargetType;
+    targetStat?: StatType; // Required for INCREASE_STAT / DECREASE_STAT
     formula: Formula; 
 }
 

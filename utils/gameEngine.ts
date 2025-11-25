@@ -6,6 +6,9 @@ export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
     if (stat === StatType.CURRENT_HP) {
         return entity.currentHp;
     }
+    if (stat === StatType.CURRENT_MANA) {
+        return entity.currentMana;
+    }
     if (stat === StatType.CURRENT_HP_PERC) {
         const max = getTotalStat(entity, StatType.HP);
         return max > 0 ? (entity.currentHp / max) * 100 : 0;
@@ -53,7 +56,7 @@ export const evaluateFormula = (formula: Formula, self: BattleEntity, enemy: Bat
  * Checks if a skill uses dynamic runtime stats (Current HP, Mana, Turn, etc.)
  */
 export const hasDynamicStats = (skill: Skill): boolean => {
-    const dynamicVars: StatType[] = [StatType.CURRENT_HP, StatType.CURRENT_HP_PERC, StatType.HP_LOST, StatType.HP_LOST_PERC, StatType.MANA];
+    const dynamicVars: StatType[] = [StatType.CURRENT_HP, StatType.CURRENT_HP_PERC, StatType.HP_LOST, StatType.HP_LOST_PERC, StatType.MANA, StatType.CURRENT_MANA];
     
     // Check conditions
     const condHas = skill.conditions.some(c => ['HP', 'HP%', 'HP_LOST', 'HP_LOST%', 'MANA', 'MANA%'].includes(c.variable));
@@ -89,7 +92,14 @@ export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: 
         let val = evaluateFormula(effect.formula, dummyEntity, dummyEntity);
         val = Math.abs(val);
 
-        if (effect.type === 'HEAL' || effect.type === 'GAIN_MANA') {
+        if (effect.type === 'INCREASE_STAT') {
+             if (effect.targetStat === StatType.CURRENT_HP || effect.targetStat === StatType.CURRENT_MANA) {
+                 val *= 1.5;
+             }
+        }
+        
+        // Legacy support check if old types exist in saved data
+        if ((effect.type as any) === 'HEAL' || (effect.type as any) === 'GAIN_MANA') {
             val *= 1.5; 
         }
         
@@ -244,15 +254,51 @@ export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleE
                 color: '#c084fc' // purple
             });
 
-        } else if (effect.type === 'HEAL') {
-            const val = Math.floor(finalValue);
-            effectTarget.currentHp += val;
-            pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
-
-        } else if (effect.type === 'GAIN_MANA') {
-            const val = Math.floor(finalValue);
-            effectTarget.currentMana += val;
-            pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
+        } else if (effect.type === 'INCREASE_STAT' || effect.type === 'DECREASE_STAT') {
+            const stat = effect.targetStat;
+            if (stat) {
+                const multiplier = effect.type === 'DECREASE_STAT' ? -1 : 1;
+                const val = Math.floor(finalValue * multiplier);
+                
+                if (stat === StatType.CURRENT_HP) {
+                    if (val > 0) {
+                        effectTarget.currentHp += val;
+                        pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
+                    } else if (val < 0) {
+                        const dmg = Math.abs(val);
+                        effectTarget.currentHp -= dmg;
+                        pushEvent({ type: 'DAMAGE', targetId: effectTarget.id, value: dmg, text: '流失', color: '#b91c1c' }); 
+                    }
+                } else if (stat === StatType.CURRENT_MANA) {
+                     effectTarget.currentMana += val;
+                     if (val !== 0) {
+                         pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
+                     }
+                } else {
+                    // Buff/Debuff Base Stat
+                    // Safely check if stat exists in base stats
+                    if (typeof effectTarget.config.stats.base[stat] === 'number') {
+                        effectTarget.config.stats.base[stat] += val;
+                        const sign = val >= 0 ? '+' : '';
+                        pushEvent({ 
+                            type: 'TEXT', 
+                            text: `${effectTarget.config.name} ${stat} ${sign}${val}`, 
+                            color: val >= 0 ? '#4ade80' : '#ef4444' 
+                        });
+                    }
+                }
+            }
+        }
+        
+        // --- Legacy Support for old saved characters ---
+        else if ((effect.type as any) === 'HEAL') {
+             const val = Math.floor(finalValue);
+             effectTarget.currentHp += val;
+             pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
+        } else if ((effect.type as any) === 'GAIN_MANA') {
+             const val = Math.floor(finalValue);
+             effectTarget.currentMana += val;
+             pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
         }
     });
 

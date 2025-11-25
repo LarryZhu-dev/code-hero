@@ -465,6 +465,13 @@ const App: React.FC = () => {
                              if (success) {
                                  passiveTriggered = true;
                                  triggeredSkillIds.add(uniqueTriggerKey);
+                                 // Add visual floating text for passive
+                                 pushEvent({ 
+                                    type: 'SKILL_EFFECT', 
+                                    sourceId: entity.id, 
+                                    skillName: s.name,
+                                    text: undefined 
+                                 });
                                  pushEvent({ type: 'TEXT', text: `[被动] ${entity.config.name} 触发 ${s.name}`});
                              }
                         }
@@ -593,12 +600,12 @@ const App: React.FC = () => {
         if (battleState && battleState.timeLeft === 0 && battleState.phase === 'ACTION_SELECTION' && !battleState.winnerId) {
             if (battleState.mode === 'ONLINE_PVP' && myRole !== 'HOST') return;
             
-            // Force basic attack
+            // Force basic attack on timeout (handles passive skill selected or AFK)
             if (battleState.mode === 'LOCAL_BOT' || myRole === 'HOST') {
-                 // Logic handled by executeTurn or forced here
+                 executeTurn('basic_attack');
             }
         }
-    }, [battleState?.timeLeft, myRole]);
+    }, [battleState?.timeLeft, myRole, executeTurn, battleState?.mode, battleState?.phase, battleState?.winnerId]);
 
     // Bot Logic
     useEffect(() => {
@@ -655,35 +662,68 @@ const App: React.FC = () => {
 
     // Helper
     const getSkillDescription = (skill: Skill, entity?: BattleEntity) => {
-        if (skill.isPassive) return "【被动技能】满足条件时自动触发，无法主动释放。";
-        if (skill.id === 'basic_attack') return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
-        const stats = entity ? entity.config.stats : myChar?.stats;
-        if (!stats) return "";
-
-        const cost = calculateManaCost(skill, stats, entity);
-        const isDynamic = hasDynamicStats(skill);
+        let description = "";
         
-        // Editor/Preview mode vs Battle mode text
-        let costText = `${cost}`;
-        if (!entity && isDynamic) {
-             costText += " + 战时加成";
+        if (skill.id === 'basic_attack') {
+            return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
         }
 
-        let desc = `【消耗 ${costText} MP】`;
-        if (skill.effects.length === 0) return desc + " 该模块为空，无任何效果。";
+        if (skill.isPassive) {
+            description = "【被动】";
+            if (skill.conditions.length === 0) {
+                 description += "每回合结束时尝试触发。";
+            } else {
+                const conds = skill.conditions.map(c => {
+                    const target = c.sourceTarget === 'SELF' ? '自身' : '敌方';
+                    const varMap: Record<string, string> = {
+                        'HP': '生命', 'HP%': '生命%', 
+                        'HP_LOST': '已损生命', 'HP_LOST%': '已损生命%',
+                        'MANA': '法力', 'MANA%': '法力%', 
+                        'TURN': '回合'
+                    };
+                    const v = varMap[c.variable] || c.variable;
+                    return `${target}${v} ${c.operator} ${c.value}`;
+                }).join(' 且 ');
+                description += `当 [${conds}] 时触发。`;
+            }
+        } else {
+            const stats = entity ? entity.config.stats : myChar?.stats;
+            if (stats) {
+                const cost = calculateManaCost(skill, stats, entity);
+                const isDynamic = hasDynamicStats(skill);
+                let costText = `${cost}`;
+                if (!entity && isDynamic) {
+                     costText += " + 战时加成";
+                }
+                description = `【消耗 ${costText} MP】`;
+            }
+        }
+
+        if (skill.effects.length === 0) return description + " (无效果)";
+        
         const effectsDesc = skill.effects.map(e => {
-            const formatTarget = (t: string) => t === 'SELF' ? '己方' : '敌方';
+            const formatTarget = (t: string) => t === 'SELF' ? '自身' : '敌方';
             const actionMap: Record<string, string> = {
                 'DAMAGE_PHYSICAL': '物理伤害',
                 'DAMAGE_MAGIC': '魔法伤害',
-                'HEAL': '治疗',
-                'GAIN_MANA': '法力回复'
+                'INCREASE_STAT': '增加',
+                'DECREASE_STAT': '减少'
             };
             const fa = e.formula.factorA;
             const fb = e.formula.factorB;
-            return `对${formatTarget(e.target)}造成 ${actionMap[e.type]} = ${formatTarget(fa.target)}.${fa.stat} ${e.formula.operator} ${formatTarget(fb.target)}.${fb.stat}`;
+            // Translate operators for better readability
+            const opMap: Record<string, string> = { '+':'+', '-':'-', '*':'x', '/':'÷' };
+            const op = opMap[e.formula.operator] || e.formula.operator;
+            
+            let actionText = actionMap[e.type] || e.type;
+            if (e.type === 'INCREASE_STAT' || e.type === 'DECREASE_STAT') {
+                actionText += e.targetStat;
+            }
+            
+            return `对${formatTarget(e.target)}${actionText} = ${formatTarget(fa.target)}的${fa.stat} ${op} ${formatTarget(fb.target)}的${fb.stat}`;
         }).join(' | ');
-        return desc + effectsDesc;
+        
+        return description + " -> " + effectsDesc;
     };
 
     const handleEntityClick = (id: string) => {
@@ -734,13 +774,38 @@ const App: React.FC = () => {
                                             {skill.isPassive ? (
                                                 <div className="space-y-1">
                                                     <div className="text-blue-400 font-bold">触发条件:</div>
-                                                    {skill.conditions.map((c, i) => (
-                                                        <div key={i} className="pl-2">• {c.sourceTarget === 'SELF' ? '自身' : '敌人'}{c.variable} {c.operator} {c.value}</div>
-                                                    ))}
+                                                    {skill.conditions.map((c, i) => {
+                                                        const target = c.sourceTarget === 'SELF' ? '自身' : '敌方';
+                                                        const varMap: Record<string, string> = {
+                                                            'HP': '生命', 'HP%': '生命%', 
+                                                            'HP_LOST': '已损生命', 'HP_LOST%': '已损生命%',
+                                                            'MANA': '法力', 'MANA%': '法力%', 
+                                                            'TURN': '回合'
+                                                        };
+                                                        const v = varMap[c.variable] || c.variable;
+                                                        return <div key={i} className="pl-2">• {target}{v} {c.operator} {c.value}</div>
+                                                    })}
                                                     <div className="text-green-400 font-bold mt-2">效果:</div>
-                                                    {skill.effects.map((e, i) => (
-                                                        <div key={i} className="pl-2">• {e.type} to {e.target}</div>
-                                                    ))}
+                                                    {skill.effects.map((e, i) => {
+                                                         const formatTarget = (t: string) => t === 'SELF' ? '自身' : '敌方';
+                                                         const actionMap: Record<string, string> = {
+                                                            'DAMAGE_PHYSICAL': '物理伤害',
+                                                            'DAMAGE_MAGIC': '魔法伤害',
+                                                            'INCREASE_STAT': '增加',
+                                                            'DECREASE_STAT': '减少'
+                                                        };
+                                                        const fa = e.formula.factorA;
+                                                        const fb = e.formula.factorB;
+                                                        const opMap: Record<string, string> = { '+':'+', '-':'-', '*':'x', '/':'÷' };
+                                                        const op = opMap[e.formula.operator] || e.formula.operator;
+                                                        
+                                                        let actionText = actionMap[e.type] || e.type;
+                                                        if (e.type === 'INCREASE_STAT' || e.type === 'DECREASE_STAT') {
+                                                            actionText += e.targetStat;
+                                                        }
+                                                        
+                                                        return <div key={i} className="pl-2">• 对{formatTarget(e.target)}{actionText} ({fa.stat} {op} {fb.stat})</div>
+                                                    })}
                                                 </div>
                                             ) : (
                                                 getSkillDescription(skill, inspectedEntity)
@@ -1074,7 +1139,7 @@ const App: React.FC = () => {
                                                                 </div>
                                                             )}
                                                             
-                                                            {!isAttack && !isPassive && (
+                                                            {!isAttack && (
                                                                 <div className={`absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full border ${canAfford ? 'bg-blue-900 border-blue-500 text-blue-200' : 'bg-red-900 border-red-500 text-white'}`}>
                                                                     {cost} MP
                                                                 </div>
@@ -1135,12 +1200,11 @@ const App: React.FC = () => {
                             }
                         })()}
                         
-                        {(battleState.phase === 'EXECUTING' || 
-                            (battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId)) 
+                        {(battleState.mode === 'ONLINE_PVP' && battleState.activePlayerId !== playerId && battleState.phase !== 'EXECUTING') 
                             && !battleState.winnerId && (
                              <div className="mt-8 text-slate-500 font-mono animate-pulse flex items-center gap-2">
                                 <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
-                                {battleState.phase === 'EXECUTING' ? '执行中...' : (myRole === 'SPECTATOR' ? '玩家思考中...' : '等待对手行动...')}
+                                {myRole === 'SPECTATOR' ? '玩家思考中...' : '等待对手行动...'}
                              </div>
                         )}
 

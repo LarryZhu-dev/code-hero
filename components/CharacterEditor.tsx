@@ -326,6 +326,12 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
 
     const updateEffect = (index: number, updates: Partial<Effect>) => {
         const newEffects = [...skill.effects];
+        
+        // Safety check for targetStat when switching to INCREASE/DECREASE
+        if ((updates.type === 'INCREASE_STAT' || updates.type === 'DECREASE_STAT') && !newEffects[index].targetStat && !updates.targetStat) {
+            updates.targetStat = StatType.CURRENT_HP; // Default to HP
+        }
+        
         newEffects[index] = { ...newEffects[index], ...updates };
         onChange({ ...skill, effects: newEffects });
     };
@@ -505,10 +511,26 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                     >
                                         <option value="DAMAGE_PHYSICAL">造成物理伤害</option>
                                         <option value="DAMAGE_MAGIC">造成魔法伤害</option>
-                                        <option value="HEAL">回复生命值</option>
-                                        <option value="GAIN_MANA">回复法力值</option>
+                                        <option value="INCREASE_STAT">增加</option>
+                                        <option value="DECREASE_STAT">减少</option>
                                     </select>
-                                    <span className="text-slate-500 text-xs">to</span>
+                                    
+                                    {(eff.type === 'INCREASE_STAT' || eff.type === 'DECREASE_STAT') && (
+                                        <select 
+                                            className={styles.variable}
+                                            value={eff.targetStat || StatType.CURRENT_HP}
+                                            onChange={(e) => updateEffect(i, { targetStat: e.target.value as StatType })}
+                                        >
+                                            <option value={StatType.CURRENT_HP}>当前生命值 (Heal/Dmg)</option>
+                                            <option value={StatType.CURRENT_MANA}>当前法力值 (MP)</option>
+                                            {Object.values(StatType)
+                                                .filter(s => !DYNAMIC_STATS.includes(s) && s !== StatType.CURRENT_MANA) // Show generic stats like AD/AP
+                                                .map(s => <option key={s} value={s}>{s}</option>)
+                                            }
+                                        </select>
+                                    )}
+
+                                    <span className="text-slate-500 text-xs">of</span>
                                     <select 
                                         className={styles.target}
                                         value={eff.target}
@@ -554,7 +576,10 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                                 updateEffect(i, { formula: f });
                                             }}
                                         >
-                                            {Object.values(StatType).map(s => <option key={s} value={s}>{s}</option>)}
+                                            {Object.values(StatType)
+                                                .filter(s => s !== StatType.CURRENT_MANA) // Filter CURRENT_MANA from source formula if preferred, or allow it
+                                                .map(s => <option key={s} value={s}>{s}</option>)
+                                            }
                                         </select>
                                     </div>
 
@@ -595,7 +620,10 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                                 updateEffect(i, { formula: f });
                                             }}
                                         >
-                                            {Object.values(StatType).map(s => <option key={s} value={s}>{s}</option>)}
+                                            {Object.values(StatType)
+                                                .filter(s => s !== StatType.CURRENT_MANA)
+                                                .map(s => <option key={s} value={s}>{s}</option>)
+                                            }
                                         </select>
                                     </div>
                                 </div>
