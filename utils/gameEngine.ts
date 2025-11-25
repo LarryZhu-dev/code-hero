@@ -1,5 +1,4 @@
 
-
 import { BattleEntity, Effect, Formula, Skill, StatType, CharacterStats, ONLY_PERCENT_STATS, BattleEvent, Condition } from '../types';
 
 export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
@@ -282,10 +281,6 @@ export const processSkill = (
     // Calculate cost based on CURRENT runtime stats
     const manaCost = calculateManaCost(skill, caster.config.stats, caster);
     
-    // 1. If Passive, identify if any branches trigger. If none, do nothing.
-    // 2. If Active, we assume intent to cast, so we proceed to cost check (unless we want 'fizzle' logic).
-    //    For now, active skills execute whatever branches pass (usually 'Always').
-    
     const triggeredBranches = skill.logic.filter(branch => 
         evaluateCondition(branch.condition, caster, target, turn)
     );
@@ -323,6 +318,9 @@ export const processSkill = (
         
         const rawValue = evaluateFormula(effect.formula, caster, target);
         const finalValue = Math.max(0, rawValue); 
+        
+        // Determine animation type to prevent duplicate projectiles for physical moves
+        const animType = effect.visual?.animationType || 'CAST';
 
         if (effect.type === 'DAMAGE_PHYSICAL') {
             const armor = getTotalStat(effectTarget, StatType.ARMOR);
@@ -343,20 +341,21 @@ export const processSkill = (
             if (lifesteal > 0) {
                 const heal = Math.floor(damage * (lifesteal / 100));
                 caster.currentHp += heal;
-                // Overheal check
                 if (caster.currentHp > caster.maxHp) caster.maxHp = caster.currentHp;
                 if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
-            // Projectile Visual
-            pushEvent({
-                type: 'PROJECTILE',
-                sourceId: caster.id,
-                targetId: effectTarget.id,
-                projectileType: 'PHYSICAL',
-                value: damage,
-                visual: effect.visual // Pass visual config
-            });
+            // Projectile Visual - SKIP IF PHYSICAL ANIMATION (Thrust/Throw)
+            if (animType !== 'THRUST' && animType !== 'THROW') {
+                pushEvent({
+                    type: 'PROJECTILE',
+                    sourceId: caster.id,
+                    targetId: effectTarget.id,
+                    projectileType: 'PHYSICAL',
+                    value: damage,
+                    visual: effect.visual // Pass visual config
+                });
+            }
 
             effectTarget.currentHp -= damage;
             pushEvent({
@@ -380,20 +379,22 @@ export const processSkill = (
             if (omnivamp > 0) {
                 const heal = Math.floor(damage * (omnivamp / 100));
                 caster.currentHp += heal;
-                // Overheal check
                 if (caster.currentHp > caster.maxHp) caster.maxHp = caster.currentHp;
                 if (heal > 0) pushEvent({ type: 'HEAL', targetId: caster.id, value: heal });
             }
 
-            // Projectile Visual
-            pushEvent({
-                type: 'PROJECTILE',
-                sourceId: caster.id,
-                targetId: effectTarget.id,
-                projectileType: 'MAGIC',
-                value: damage,
-                visual: effect.visual // Pass visual config
-            });
+            // Projectile Visual - SKIP IF PHYSICAL ANIMATION
+            // Even magic can use physical animations (e.g. enchanted blade)
+            if (animType !== 'THRUST' && animType !== 'THROW') {
+                pushEvent({
+                    type: 'PROJECTILE',
+                    sourceId: caster.id,
+                    targetId: effectTarget.id,
+                    projectileType: 'MAGIC',
+                    value: damage,
+                    visual: effect.visual 
+                });
+            }
 
             effectTarget.currentHp -= damage;
             pushEvent({
@@ -465,7 +466,6 @@ export const processSkill = (
                             visual: effect.visual
                         });
                     } else if (typeof effectTarget.config.stats.base[stat] === 'number') {
-                        // Legacy handling for other stats (AD, AP...)
                         effectTarget.config.stats.base[stat] += val;
                         const sign = val >= 0 ? '+' : '';
                         

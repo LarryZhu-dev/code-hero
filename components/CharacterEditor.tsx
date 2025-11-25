@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, EffectVisual, VisualShape, AppearanceConfig, HeadType, BodyType, WeaponType, AnimationType } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword, LayoutTemplate, Sparkles } from 'lucide-react';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword, Sparkles, X } from 'lucide-react';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
-import { classifyHero, getDefaultAppearance, getRoleDisplayName, drawBody, drawWeapon } from '../utils/heroSystem';
+import { classifyHero, getDefaultAppearance, getRoleDisplayName, drawWeapon } from '../utils/heroSystem';
 import { createProjectile, createAuraEffect, createParticles, createSlashEffect, createMagicEffect } from '../utils/visualEffects';
 import * as PIXI from 'pixi.js';
+import HeroAvatar from './HeroAvatar';
 
 interface Props {
     onSave: (char: CharacterConfig) => void;
@@ -16,7 +17,6 @@ interface Props {
 const MAX_BASE_POINTS = 10000;
 const MAX_PERCENT_POINTS = 1000;
 
-// Helper for generating IDs
 const generateId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
@@ -24,7 +24,6 @@ const generateId = () => {
     return Math.random().toString(36).substring(2, 15);
 };
 
-// --- Enhanced Token Styles ---
 const baseSelectClass = "appearance-none outline-none font-mono text-xs px-3 py-1.5 rounded cursor-pointer transition-all border shadow-sm text-center font-bold";
 
 const styles = {
@@ -35,15 +34,11 @@ const styles = {
     input: "bg-slate-950/50 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-center text-yellow-200 w-20 focus:border-yellow-500 outline-none transition-colors",
 };
 
-// --- Color Utils ---
 const generateContrastingColor = (hex: string): string => {
-    // Basic Complementary Logic
     const color = parseInt(hex.replace('#', ''), 16);
     const r = (color >> 16) & 255;
     const g = (color >> 8) & 255;
     const b = color & 255;
-
-    // Convert to HSL
     const r1 = r / 255, g1 = g / 255, b1 = b / 255;
     const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
     let h = 0, s, l = (max + min) / 2;
@@ -58,17 +53,10 @@ const generateContrastingColor = (hex: string): string => {
         }
         h /= 6;
     }
-
-    // Shift Hue 180deg (Complementary) or 30deg (Split)
-    // We use a slight offset to ensure it looks distinct but designed
     h = (h + 0.5) % 1; 
-    
-    // Normalize L/S for background usage (usually darker or desaturated is good for BG)
-    // But for avatar card, we want pop.
-    l = l > 0.5 ? 0.3 : 0.7; // Invert lightness roughly
-    s = Math.min(s, 0.6); // Cap saturation
+    l = l > 0.5 ? 0.3 : 0.7; 
+    s = Math.min(s, 0.6); 
 
-    // HSL back to RGB
     const hue2rgb = (p: number, q: number, t: number) => {
         if(t < 0) t += 1;
         if(t > 1) t -= 1;
@@ -93,113 +81,7 @@ const generateContrastingColor = (hex: string): string => {
     return `#${toHex(r2)}${toHex(g2)}${toHex(b2)}`;
 };
 
-const HeroPreview: React.FC<{ appearance: AppearanceConfig, bgColor?: string }> = ({ appearance, bgColor }) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const appRef = useRef<PIXI.Application | null>(null);
-    const appearanceRef = useRef(appearance);
-
-    useEffect(() => {
-        appearanceRef.current = appearance;
-    }, [appearance]);
-
-    useEffect(() => {
-        let isCancelled = false;
-
-        const init = async () => {
-            if (!containerRef.current || appRef.current) return;
-
-            const app = new PIXI.Application();
-            await app.init({ 
-                width: 250, 
-                height: 250, 
-                backgroundColor: bgColor ? parseInt(bgColor.replace('#', '0x')) : 0x0f172a, 
-                antialias: false 
-            });
-            
-            if (isCancelled) {
-                app.destroy();
-                return;
-            }
-
-            if (containerRef.current) {
-                while(containerRef.current.firstChild) {
-                    containerRef.current.removeChild(containerRef.current.firstChild);
-                }
-                containerRef.current.appendChild(app.canvas);
-            }
-            appRef.current = app;
-
-            const mainContainer = new PIXI.Container();
-            mainContainer.x = 125;
-            mainContainer.y = 150; 
-            mainContainer.scale.set(2.5);
-            app.stage.addChild(mainContainer);
-
-            const shadow = new PIXI.Graphics();
-            shadow.ellipse(0, 0, 30, 8).fill({ color: 0x000000, alpha: 0.3 });
-            shadow.y = 20; 
-            mainContainer.addChild(shadow);
-
-            const bodyGroup = new PIXI.Container();
-            mainContainer.addChild(bodyGroup);
-            
-            const handGroup = new PIXI.Container();
-            handGroup.x = -8; 
-            handGroup.y = -36; 
-            mainContainer.addChild(handGroup);
-
-            const bodyGraphics = new PIXI.Graphics();
-            bodyGroup.addChild(bodyGraphics);
-
-            const weaponGraphics = new PIXI.Graphics();
-            handGroup.addChild(weaponGraphics);
-
-            let time = 0;
-            app.ticker.add(() => {
-                time++;
-                const appConfig = appearanceRef.current;
-                
-                drawBody(bodyGraphics, appConfig);
-                drawWeapon(weaponGraphics, appConfig);
-
-                weaponGraphics.x = 0;
-                weaponGraphics.rotation = 0;
-
-                if (appConfig.weapon === 'SWORD' || appConfig.weapon === 'AXE' || appConfig.weapon === 'HAMMER') {
-                   weaponGraphics.rotation = 0.5;
-                   weaponGraphics.x = 8;
-                } else if (appConfig.weapon === 'BOW') {
-                    weaponGraphics.x = 16;
-                }
-                
-                const yOffset = Math.sin(time * 0.1) * 4;
-                mainContainer.y = 150 + yOffset;
-                shadow.scale.set(1 + Math.sin(time * 0.1) * 0.1);
-                
-                const wType = appConfig.weapon;
-                if (wType === 'STAFF' || wType === 'BOW') {
-                   handGroup.rotation = Math.sin(time * 0.05) * 0.1;
-                } else {
-                    handGroup.rotation = Math.sin(time * 0.1) * 0.05;
-                }
-            });
-        };
-        init();
-
-        return () => {
-            isCancelled = true;
-            if (appRef.current) {
-                appRef.current.destroy({ removeView: true });
-                appRef.current = null;
-            }
-        };
-    }, [bgColor]); 
-
-    return <div ref={containerRef} className="w-[250px] h-[250px] rounded border border-slate-700 shadow-inner flex items-center justify-center overflow-hidden"></div>;
-};
-
-// --- Skill Visual Preview Component ---
-const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType }> = ({ effect, weapon }) => {
+const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType, onClose: () => void }> = ({ effect, weapon, onClose }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<PIXI.Application | null>(null);
     const effectRef = useRef(effect);
@@ -217,7 +99,7 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType }> = ({ 
             if (!containerRef.current || appRef.current) return;
             
             const app = new PIXI.Application();
-            await app.init({ width: 320, height: 160, backgroundColor: 0x0f172a, antialias: false });
+            await app.init({ width: 600, height: 400, backgroundColor: 0x0f172a, antialias: false });
             
             if (isCancelled) {
                 app.destroy();
@@ -228,21 +110,22 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType }> = ({ 
             containerRef.current.appendChild(app.canvas);
             appRef.current = app;
 
-            // -- Static Scene Setup --
+            // -- Scene --
             const ground = new PIXI.Graphics();
-            ground.moveTo(0, 130).lineTo(320, 130).stroke({width: 2, color: 0x334155});
+            ground.moveTo(0, 300).lineTo(600, 300).stroke({width: 4, color: 0x334155});
             app.stage.addChild(ground);
 
             const casterContainer = new PIXI.Container();
-            casterContainer.x = 50; casterContainer.y = 110;
+            casterContainer.x = 150; casterContainer.y = 280;
+            casterContainer.scale.set(1.5);
             app.stage.addChild(casterContainer);
 
             const targetContainer = new PIXI.Container();
-            targetContainer.x = 270; targetContainer.y = 110;
-            targetContainer.scale.x = -1; // Face left
+            targetContainer.x = 450; targetContainer.y = 280;
+            targetContainer.scale.set(1.5); // Face left
+            targetContainer.scale.x = -1.5;
             app.stage.addChild(targetContainer);
 
-            // Simple Shapes for Preview
             const drawDummy = (g: PIXI.Graphics, color: number) => {
                 g.rect(-10, -30, 20, 30).fill(color);
                 g.circle(0, -40, 10).fill(color);
@@ -265,94 +148,107 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType }> = ({ 
                 if (!app.stage) return;
                 frame++;
                 
-                // Redraw weapon based on current prop
                 const wConfig: AppearanceConfig = { weapon: weaponRef.current, themeColor: '#ffffff', head: 'BALD', body: 'VEST' };
                 drawWeapon(weaponG, wConfig);
                 weaponG.x = 5; weaponG.y = -20;
                 if (wConfig.weapon === 'BOW') { weaponG.x = 10; weaponG.y = -15; }
 
-                // Periodic Trigger
-                if (frame % 120 === 30) {
+                if (frame % 180 === 30) {
                     const eff = effectRef.current;
                     const visual = eff.visual || { color: '#ffffff', animationType: 'CAST' };
                     const animType = visual.animationType || 'CAST';
+                    const color = parseInt((visual.color || '#ffffff').replace('#', '0x'));
 
-                    // Caster Animation
-                    if (animType === 'CAST') {
-                        createMagicEffect(app, casterContainer.x, casterContainer.y - 20, 0xffffff);
-                        // Tween rotation
-                        let t = 0;
-                        const tick = (delta: PIXI.Ticker) => {
-                            t += 0.1;
-                            weaponG.rotation = -Math.sin(t) * 1;
-                            if (t > Math.PI) {
-                                weaponG.rotation = 0;
-                                app.ticker.remove(tick);
-                            }
-                        };
-                        app.ticker.add(tick);
-
-                    } else if (animType === 'THRUST') {
-                         let t = 0;
+                    if (animType === 'THRUST') {
+                         // Dash Hit Return
                          const startX = casterContainer.x;
+                         const targetX = targetContainer.x - 80;
+                         let t = 0;
                          const tick = () => {
-                             t += 0.2;
-                             if (t < Math.PI) {
-                                 casterContainer.x = startX + Math.sin(t) * 40;
-                             } else {
+                             t++;
+                             if (t < 20) {
+                                 // Dash forward
+                                 casterContainer.x += (targetX - startX) / 20;
+                             } else if (t === 20) {
+                                 // Hit
+                                 createSlashEffect(app, targetContainer.x, targetContainer.y);
+                                 createParticles(app, targetContainer.x, targetContainer.y - 30, 0xff0000, 5);
+                             } else if (t > 30 && t < 50) {
+                                 // Return
+                                 casterContainer.x += (startX - casterContainer.x) * 0.2;
+                             } else if (t >= 50) {
                                  casterContainer.x = startX;
                                  app.ticker.remove(tick);
                              }
                          };
                          app.ticker.add(tick);
-                         createSlashEffect(app, targetContainer.x, targetContainer.y);
+
                     } else if (animType === 'THROW') {
-                        // Simplified Throw Visual
+                        // Throw - Pick - Return
                         weaponG.visible = false;
                         const clone = new PIXI.Graphics();
                         drawWeapon(clone, wConfig);
-                        clone.x = casterContainer.x; clone.y = casterContainer.y - 20;
+                        clone.x = casterContainer.x; clone.y = casterContainer.y - 40;
                         app.stage.addChild(clone);
                         
+                        const startX = casterContainer.x;
+                        const tx = targetContainer.x;
                         let t = 0;
+                        
                         const tick = () => {
-                             t += 0.05;
-                             clone.x += 10;
-                             clone.y += Math.sin(t * 10) * 5;
-                             clone.rotation += 0.5;
-                             if (clone.x > targetContainer.x) {
-                                 weaponG.visible = true;
-                                 clone.destroy();
-                                 createParticles(app, targetContainer.x, targetContainer.y - 20, 0xffffff, 5);
-                                 app.ticker.remove(tick);
-                             }
+                            t++;
+                            if (t < 30) {
+                                // Throw Arc
+                                const progress = t / 30;
+                                clone.x = startX + (tx - startX) * progress;
+                                clone.y = (casterContainer.y - 40) - Math.sin(progress * Math.PI) * 100 + (progress * 40); // Arc to ground
+                                clone.rotation += 0.5;
+                            } else if (t === 30) {
+                                // Hit
+                                clone.rotation = 2.5;
+                                clone.y = targetContainer.y;
+                                createParticles(app, tx, targetContainer.y - 20, color, 5);
+                            } else if (t > 30 && t < 60) {
+                                // Run to weapon
+                                casterContainer.x += (tx - 40 - casterContainer.x) * 0.1;
+                            } else if (t === 60) {
+                                // Pickup
+                                clone.destroy();
+                                weaponG.visible = true;
+                            } else if (t > 70 && t < 100) {
+                                // Return
+                                casterContainer.x += (startX - casterContainer.x) * 0.1;
+                            } else if (t >= 100) {
+                                casterContainer.x = startX;
+                                app.ticker.remove(tick);
+                            }
                         };
                         app.ticker.add(tick);
-                    }
 
-                    // Projectile / Effect
-                    const color = parseInt((visual.color || '#ffffff').replace('#', '0x'));
-                    
-                    if (eff.type.includes('DAMAGE') && animType !== 'THRUST') {
-                         // Fire Projectile
-                         const shape = visual.shape || 'CIRCLE';
-                         const traj = eff.type === 'DAMAGE_MAGIC' ? 'LINEAR' : 'PARABOLIC';
-                         createProjectile(
-                             app, 
-                             casterContainer.x + 20, casterContainer.y - 30, 
-                             targetContainer.x - 10, targetContainer.y - 30,
-                             color, 100, traj, shape, 
-                             () => {
-                                 createParticles(app, targetContainer.x, targetContainer.y - 30, color, 5);
-                             }
-                         );
-                    } else if (eff.type.includes('STAT')) {
-                        // Buff/Debuff Visual
-                        const isSelf = eff.target === 'SELF';
-                        const tx = isSelf ? casterContainer.x : targetContainer.x;
-                        const ty = isSelf ? casterContainer.y : targetContainer.y;
-                        const dir = eff.type === 'INCREASE_STAT' ? 'UP' : 'DOWN';
-                        createAuraEffect(app, tx, ty, color, dir);
+                    } else {
+                        // Standard Cast
+                        createMagicEffect(app, casterContainer.x, casterContainer.y - 40, color);
+                        
+                        if (eff.type.includes('DAMAGE')) {
+                             const shape = visual.shape || 'CIRCLE';
+                             const traj = eff.type === 'DAMAGE_MAGIC' ? 'LINEAR' : 'PARABOLIC';
+                             createProjectile(
+                                 app, 
+                                 casterContainer.x + 20, casterContainer.y - 40, 
+                                 targetContainer.x - 10, targetContainer.y - 40,
+                                 color, 100, traj, shape, 
+                                 () => {
+                                     createParticles(app, targetContainer.x, targetContainer.y - 40, color, 5);
+                                 }
+                             );
+                        } else {
+                            // Buff Visual
+                            const isSelf = eff.target === 'SELF';
+                            const tx = isSelf ? casterContainer.x : targetContainer.x;
+                            const ty = isSelf ? casterContainer.y : targetContainer.y;
+                            const dir = eff.type === 'INCREASE_STAT' ? 'UP' : 'DOWN';
+                            createAuraEffect(app, tx, ty, color, dir);
+                        }
                     }
                 }
             };
@@ -369,7 +265,18 @@ const SkillVisualPreview: React.FC<{ effect: Effect, weapon: WeaponType }> = ({ 
         };
     }, []);
 
-    return <div ref={containerRef} className="w-full h-full"></div>;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+            <div className="bg-slate-900 rounded-xl border border-slate-700 shadow-2xl p-4 w-[640px] relative" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-white font-bold retro-font">特效预览</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                </div>
+                <div ref={containerRef} className="w-[600px] h-[400px] rounded border border-slate-800 bg-black overflow-hidden mx-auto"></div>
+                <div className="text-center text-xs text-slate-500 mt-2">预览动画每 3 秒循环一次</div>
+            </div>
+        </div>
+    );
 };
 
 const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
@@ -382,6 +289,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     });
 
     const [activeTab, setActiveTab] = useState<'CORE' | 'VISUAL'>('CORE');
+    const [previewEffect, setPreviewEffect] = useState<{effect: Effect, weapon: WeaponType} | null>(null);
 
     // Auto-update Role 
     useEffect(() => {
@@ -399,7 +307,6 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     useEffect(() => {
         if (char.appearance?.themeColor) {
             const contrast = generateContrastingColor(char.appearance.themeColor);
-            // Only update if significantly different to avoid loops/jitters (though calc is deterministic)
             if (char.avatarColor !== contrast) {
                 setChar(prev => ({ ...prev, avatarColor: contrast }));
             }
@@ -491,7 +398,15 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     };
 
     return (
-        <div className="h-full flex flex-col overflow-hidden bg-slate-900 text-white p-4">
+        <div className="h-full flex flex-col overflow-hidden bg-slate-900 text-white p-4 relative">
+            {previewEffect && (
+                <SkillVisualPreview 
+                    effect={previewEffect.effect} 
+                    weapon={previewEffect.weapon} 
+                    onClose={() => setPreviewEffect(null)} 
+                />
+            )}
+
             <header className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 bg-slate-900 shrink-0">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-700">
@@ -542,27 +457,34 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                 {activeTab === 'CORE' && (
                 <div className="w-full h-full flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     
-                    {/* COL 1: STATS (30%) */}
-                    <div className="w-[30%] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl min-w-[250px]">
+                    {/* COL 1: STATS (40%) */}
+                    <div className="w-[40%] flex flex-col bg-slate-800/50 rounded-xl border border-slate-700/50 backdrop-blur-sm overflow-hidden shadow-xl min-w-[320px]">
                         <div className="bg-slate-800/80 p-3 border-b border-slate-700 shadow-md z-10">
                             <h3 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2"><Cpu size={14}/> 基础属性</h3>
-                            <div className="grid grid-cols-1 gap-2">
-                                <div className="bg-slate-900/80 p-2 rounded border border-slate-700 flex justify-between items-center">
-                                    <span className="text-[10px] text-slate-400 uppercase">Points</span>
+                            <div className="flex gap-2">
+                                <div className="flex-1 bg-slate-900/80 p-2 rounded border border-slate-700 flex flex-col items-center">
+                                    <span className="text-[10px] text-slate-400 uppercase">Fixed Points</span>
                                     <div className={`text-sm font-mono font-bold ${usedBase > MAX_BASE_POINTS ? 'text-red-500' : 'text-white'}`}>
-                                        {usedBase}<span className="text-[10px] text-slate-600">/{MAX_BASE_POINTS}</span>
+                                        {usedBase}/{MAX_BASE_POINTS}
                                     </div>
                                 </div>
-                                <div className="bg-slate-900/80 p-2 rounded border border-slate-700 flex justify-between items-center">
-                                    <span className="text-[10px] text-slate-400 uppercase">Percent</span>
+                                <div className="flex-1 bg-slate-900/80 p-2 rounded border border-slate-700 flex flex-col items-center">
+                                    <span className="text-[10px] text-slate-400 uppercase">Percent Points</span>
                                     <div className={`text-sm font-mono font-bold ${usedPerc > MAX_PERCENT_POINTS ? 'text-red-500' : 'text-purple-400'}`}>
-                                        {usedPerc}<span className="text-[10px] text-slate-600">/{MAX_PERCENT_POINTS}%</span>
+                                        {usedPerc}/{MAX_PERCENT_POINTS}%
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-2 grid grid-cols-1 gap-1 custom-scrollbar">
+                        {/* Grid Header */}
+                        <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-4 py-2 bg-slate-900/50 border-b border-slate-800">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase">属性 (Stat)</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">固定值</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center">百分比</span>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                             {Object.values(StatType)
                                 .filter(stat => !DYNAMIC_STATS.includes(stat)) 
                                 .map(stat => {
@@ -570,40 +492,39 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                 const isBaseOnly = ONLY_BASE_STATS.includes(stat);
                                 
                                 return (
-                                    <div key={stat} className="bg-slate-900/40 p-1.5 rounded border border-slate-700/30 hover:border-slate-500/50 flex flex-col gap-1">
-                                        <label className={`text-[10px] font-bold truncate ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-400'}`}>
+                                    <div key={stat} className="grid grid-cols-[1fr_80px_80px] gap-2 items-center bg-slate-900/40 p-1.5 rounded border border-slate-700/30 hover:border-slate-500/50 hover:bg-slate-800/60 transition-colors">
+                                        <label className={`text-[10px] font-bold truncate pl-2 ${stat === StatType.SPEED ? 'text-yellow-400' : 'text-slate-300'}`}>
                                             {stat}
                                         </label>
-                                        <div className="flex gap-1">
-                                            {!isPercentOnly ? (
-                                                <input 
-                                                    type="number" 
-                                                    className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-right outline-none font-mono text-[10px] text-yellow-100 focus:border-blue-500"
-                                                    value={char.stats.base[stat]}
-                                                    onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
-                                                    onFocus={(e) => e.target.select()}
-                                                    min={0}
-                                                />
-                                            ) : <div className="flex-1"></div>}
-                                            
-                                            {!isBaseOnly ? (
-                                                <input 
-                                                    type="number" 
-                                                    className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-right outline-none font-mono text-[10px] text-purple-300 focus:border-purple-500"
-                                                    value={char.stats.percent[stat]}
-                                                    onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
-                                                    onFocus={(e) => e.target.select()}
-                                                    min={0}
-                                                />
-                                            ) : <div className="flex-1"></div>}
-                                        </div>
+                                        
+                                        {!isPercentOnly ? (
+                                            <input 
+                                                type="number" 
+                                                className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-1 text-center outline-none font-mono text-[10px] text-yellow-100 focus:border-blue-500"
+                                                value={char.stats.base[stat]}
+                                                onChange={(e) => handleStatChange('base', stat, parseInt(e.target.value) || 0)}
+                                                onFocus={(e) => e.target.select()}
+                                                min={0}
+                                            />
+                                        ) : <div className="w-full h-full bg-slate-900/20 rounded border border-dashed border-slate-800"></div>}
+                                        
+                                        {!isBaseOnly ? (
+                                            <input 
+                                                type="number" 
+                                                className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-1 text-center outline-none font-mono text-[10px] text-purple-300 focus:border-purple-500"
+                                                value={char.stats.percent[stat]}
+                                                onChange={(e) => handleStatChange('percent', stat, parseInt(e.target.value) || 0)}
+                                                onFocus={(e) => e.target.select()}
+                                                min={0}
+                                            />
+                                        ) : <div className="w-full h-full bg-slate-900/20 rounded border border-dashed border-slate-800"></div>}
                                     </div>
                                 );
                             })}
                         </div>
                     </div>
 
-                    {/* COL 2: SKILLS (70%) */}
+                    {/* COL 2: SKILLS (60%) */}
                     <div className="flex-1 flex flex-col bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden min-w-[300px]">
                          <div className="flex justify-between items-center p-3 border-b border-slate-700 bg-slate-900/50 backdrop-blur z-10">
                             <h3 className="text-lg font-bold text-green-400 flex items-center gap-2 retro-font">
@@ -625,6 +546,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                                     skill={skill}
                                     stats={char.stats}
                                     weapon={char.appearance?.weapon || 'SWORD'}
+                                    onPreview={(eff) => setPreviewEffect({ effect: eff, weapon: char.appearance?.weapon || 'SWORD' })}
                                     onChange={(s) => updateSkill(idx, s)} 
                                     onDelete={() => {
                                         const ns = [...char.skills];
@@ -649,11 +571,17 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                     <div className="w-full h-full flex gap-8 p-8 animate-in fade-in slide-in-from-right duration-300 items-start">
                         {/* Preview Box */}
                         <div className="w-1/3 flex flex-col items-center gap-6">
-                            <div className="text-xl font-bold text-white retro-font">形象预览</div>
-                            <div className="p-4 bg-slate-800 rounded-2xl border-2 border-slate-600 shadow-2xl relative">
-                                <HeroPreview appearance={char.appearance} bgColor={char.avatarColor} />
-                                <div className="absolute top-2 right-2 px-2 py-1 bg-black/50 rounded text-[10px] text-slate-400">
-                                    BG自动生成
+                            <div className="text-xl font-bold text-white retro-font">形象卡片</div>
+                            <div className="relative">
+                                {/* Using HeroAvatar as the static visual representation */}
+                                <div className="p-1 rounded-xl shadow-2xl bg-gradient-to-br from-slate-700 to-slate-800 border-2 border-slate-600">
+                                    <div className="overflow-hidden rounded-lg border border-slate-900/50 shadow-inner">
+                                        <HeroAvatar appearance={char.appearance} size={256} bgColor={char.avatarColor} />
+                                    </div>
+                                </div>
+                                
+                                <div className="absolute -bottom-4 -right-4 bg-slate-900 border border-slate-700 rounded px-3 py-1 text-xs text-slate-400 shadow-lg">
+                                    背景自动计算
                                 </div>
                             </div>
                         </div>
@@ -742,7 +670,7 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     );
 };
 
-const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: WeaponType, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, weapon, onChange, onDelete }) => {
+const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: WeaponType, onPreview: (effect: Effect) => void, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, weapon, onPreview, onChange, onDelete }) => {
     const [manaCost, setManaCost] = useState(0);
     const [isDynamic, setIsDynamic] = useState(false);
     const [expandedVisual, setExpandedVisual] = useState<number | null>(null);
@@ -860,7 +788,6 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                 {skill.logic.map((branch, i) => {
                     const visual = branch.effect.visual || { color: '#ffffff', shape: 'CIRCLE', animationType: 'CAST' };
                     const isDamage = branch.effect.type.includes('DAMAGE');
-                    // Check if animation type is physical/weapon-based (Thrust/Throw)
                     const isWeaponAnim = visual.animationType === 'THRUST' || visual.animationType === 'THROW';
 
                     return (
@@ -874,10 +801,10 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                             </span>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => setExpandedVisual(expandedVisual === i ? null : i)}
-                                    className={`text-[9px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${expandedVisual === i ? 'bg-blue-900 text-blue-300' : 'bg-slate-800 text-slate-500 hover:text-blue-300'}`}
+                                    onClick={() => onPreview(branch.effect)}
+                                    className="text-[9px] flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors bg-blue-900 text-blue-300 hover:bg-blue-800"
                                 >
-                                    <Sparkles size={10}/> 特效预览
+                                    <Sparkles size={10}/> 预览特效
                                 </button>
                                 <button 
                                     className="text-slate-600 hover:text-red-400 p-0.5 rounded hover:bg-red-950/30 transition-all"
@@ -893,7 +820,7 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                          </div>
 
                          <div className="p-2 grid gap-2">
-                            {/* IF / THEN Logic ... (unchanged logic structure) ... */}
+                            {/* IF / THEN Logic */}
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <button 
                                     onClick={() => toggleCondition(i)}
@@ -1079,42 +1006,48 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                                 </div>
                             </div>
 
-                            {/* Visual Configuration Panel & Preview */}
-                            {expandedVisual === i && (
-                                <div className="mt-2 pl-4 flex gap-4 animate-in fade-in slide-in-from-top-2 duration-200 h-40">
-                                    <div className="w-1/2 bg-slate-900 p-2 rounded border border-slate-700 flex flex-col gap-2 overflow-y-auto">
-                                        <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                                            <span className="text-[10px] font-bold text-slate-400">视觉配置</span>
-                                        </div>
+                            {/* Compact Visual Config */}
+                            <button 
+                                onClick={() => setExpandedVisual(expandedVisual === i ? null : i)}
+                                className={`text-[10px] text-left px-2 py-1 rounded border border-dashed flex justify-between items-center ${expandedVisual === i ? 'bg-slate-800 border-slate-600 text-slate-300' : 'bg-slate-900/30 border-slate-800 text-slate-600 hover:text-slate-400'}`}
+                            >
+                                <span>视觉配置: {visual.animationType || 'CAST'} {isDamage && !isWeaponAnim ? `+ ${visual.shape}` : ''}</span>
+                                <span className="opacity-50">{expandedVisual === i ? '收起' : '展开'}</span>
+                            </button>
 
-                                        <div className="flex items-center gap-2">
-                                            <label className="text-[10px] text-slate-500 w-12">动作类型</label>
+                            {expandedVisual === i && (
+                                <div className="pl-2 pr-2 pb-2 bg-slate-900/50 rounded border border-slate-800 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="grid grid-cols-2 gap-4 mt-2">
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] text-slate-500">动作类型</label>
                                             <select
-                                                className={`${styles.variable} text-[10px] py-0.5 flex-1`}
+                                                className={`${styles.variable} text-[10px] py-0.5`}
                                                 value={visual.animationType || 'CAST'}
                                                 onChange={(e) => updateVisual(i, { animationType: e.target.value as AnimationType })}
                                             >
-                                                <option value="CAST">施法/标准 (Cast)</option>
-                                                <option value="THRUST">突刺/射击 (Thrust/Shoot)</option>
-                                                <option value="THROW">投掷武器 (Throw)</option>
+                                                <option value="CAST">施法 (Cast)</option>
+                                                <option value="THRUST">突刺 (Thrust)</option>
+                                                <option value="THROW">投掷 (Throw)</option>
                                             </select>
                                         </div>
                                         
-                                        <div className="flex items-center gap-2">
-                                            <label className="text-[10px] text-slate-500 w-12">颜色</label>
-                                            <input 
-                                                type="color" 
-                                                value={visual.color}
-                                                onChange={(e) => updateVisual(i, { color: e.target.value })}
-                                                className="w-8 h-5 rounded cursor-pointer border-none bg-transparent"
-                                            />
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] text-slate-500">颜色</label>
+                                            <div className="flex items-center gap-2">
+                                                <input 
+                                                    type="color" 
+                                                    value={visual.color}
+                                                    onChange={(e) => updateVisual(i, { color: e.target.value })}
+                                                    className="w-full h-5 rounded cursor-pointer border-none bg-transparent"
+                                                />
+                                            </div>
                                         </div>
 
                                         {isDamage && !isWeaponAnim && (
-                                            <div className="flex items-center gap-2">
-                                                <label className="text-[10px] text-slate-500 w-12">发射物</label>
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-[10px] text-slate-500">发射物形状</label>
                                                 <select 
-                                                    className={`${styles.variable} text-[10px] py-0.5 flex-1`}
+                                                    className={`${styles.variable} text-[10px] py-0.5`}
                                                     value={visual.shape}
                                                     onChange={(e) => updateVisual(i, { shape: e.target.value as VisualShape })}
                                                 >
@@ -1127,16 +1060,10 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, weapon: Weapon
                                             </div>
                                         )}
                                         {isWeaponAnim && (
-                                            <div className="text-[10px] text-slate-500 italic p-1 bg-slate-800 rounded">
-                                                使用当前武器模型攻击
+                                            <div className="col-span-2 text-[10px] text-slate-500 italic p-1 bg-slate-800/50 rounded border border-slate-700">
+                                                使用当前武器模型进行攻击动画
                                             </div>
                                         )}
-                                    </div>
-                                    
-                                    {/* Preview Window */}
-                                    <div className="w-1/2 bg-slate-950 rounded border border-slate-800 overflow-hidden flex items-center justify-center shadow-inner relative">
-                                        <div className="absolute top-1 right-1 text-[8px] text-slate-600 font-mono z-10">PREVIEW</div>
-                                        <SkillVisualPreview effect={branch.effect} weapon={weapon} />
                                     </div>
                                 </div>
                             )}
