@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { StatType } from '../types';
 import { 
@@ -23,15 +24,17 @@ export const StatIcon: React.FC<Props> = ({ stat, size = 18, className = '' }) =
         case StatType.MR: return <IconShield size={size} className={`text-cyan-500 ${className}`}/>;
         case StatType.SPEED: return <IconBoot size={size} className={`text-emerald-500 ${className}`}/>;
         case StatType.CRIT_RATE: return <IconCrosshair size={size} className={`text-pink-500 ${className}`}/>;
-        case StatType.CRIT_DMG: return <IconSkull size={size} className={`text-red-700 text-rose-700 ${className}`}/>; // Merged class logic
-        case StatType.ARMOR_PEN_FLAT: return <IconBrokenShield size={size} className={`text-orange-300 ${className}`}/>;
-        case StatType.ARMOR_PEN_PERC: return <IconBrokenShield size={size} className={`text-orange-600 ${className}`}/>;
-        case StatType.MAGIC_PEN_FLAT: return <IconSpark size={size} className={`text-purple-300 ${className}`}/>;
-        case StatType.MAGIC_PEN_PERC: return <IconSpark size={size} className={`text-purple-600 ${className}`}/>;
+        case StatType.CRIT_DMG: return <IconSkull size={size} className={`text-red-700 text-rose-700 ${className}`}/>;
+        
+        // Updated Mappings
+        case StatType.ARMOR_PEN: return <IconBrokenShield size={size} className={`text-orange-600 ${className}`}/>;
+        case StatType.MAGIC_PEN: return <IconSpark size={size} className={`text-purple-600 ${className}`}/>;
+        
         case StatType.LIFESTEAL: return <IconVampire size={size} className={`text-red-600 text-red-400 ${className}`}/>;
         case StatType.OMNIVAMP: return <IconVampire size={size} className={`text-purple-600 text-purple-400 ${className}`}/>;
         case StatType.MANA_REGEN: return <IconDroplet size={size} className={`text-blue-300 ${className}`}/>;
-        case StatType.TENACITY: return <IconMuscle size={size} className={`text-yellow-600 ${className}`}/>;
+        
+        // Tenacity removed, dynamic stats fallback
         default: return <div className={`bg-slate-600 ${className}`} style={{ width: size, height: size }} />;
     }
 };

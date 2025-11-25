@@ -1,4 +1,5 @@
 
+
 import { BattleEntity, Effect, Formula, Skill, StatType, CharacterStats, ONLY_PERCENT_STATS, BattleEvent, Condition } from '../types';
 
 export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
@@ -164,15 +165,19 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, p
     if (isMagic) {
         // Magic Damage Calc
         const mr = getTotalStat(target, StatType.MR);
-        const penFlat = getTotalStat(caster, StatType.MAGIC_PEN_FLAT);
-        const penPerc = getTotalStat(caster, StatType.MAGIC_PEN_PERC);
+        // Split Pen Stats from Config directly (Base vs Percent)
+        // Note: Buffs to penetration (via INCREASE_STAT) are applied to base in current system
+        const penFlat = caster.config.stats.base[StatType.MAGIC_PEN] || 0;
+        const penPerc = caster.config.stats.percent[StatType.MAGIC_PEN] || 0;
+        
         const effectiveMr = Math.max(0, (mr * (1 - penPerc / 100)) - penFlat);
         mitigation = effectiveMr > 0 ? (100 / (100 + effectiveMr)) : 1;
     } else {
         // Physical Damage Calc
         const armor = getTotalStat(target, StatType.ARMOR);
-        const penFlat = getTotalStat(caster, StatType.ARMOR_PEN_FLAT);
-        const penPerc = getTotalStat(caster, StatType.ARMOR_PEN_PERC);
+        const penFlat = caster.config.stats.base[StatType.ARMOR_PEN] || 0;
+        const penPerc = caster.config.stats.percent[StatType.ARMOR_PEN] || 0;
+
         const effectiveArmor = Math.max(0, (armor * (1 - penPerc / 100)) - penFlat);
         mitigation = effectiveArmor > 0 ? (100 / (100 + effectiveArmor)) : 1; 
     }
@@ -226,6 +231,7 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, p
         type: 'DAMAGE',
         targetId: target.id,
         value: damage,
+        isCrit: isCrit,
         text: isCrit ? '暴击!' : '',
         color: isCrit ? (isMagic ? '#f0abfc' : '#fca5a5') : (isMagic ? '#a855f7' : '#ef4444')
     });
@@ -325,8 +331,9 @@ export const processSkill = (
 
         if (effect.type === 'DAMAGE_PHYSICAL') {
             const armor = getTotalStat(effectTarget, StatType.ARMOR);
-            const penFlat = getTotalStat(caster, StatType.ARMOR_PEN_FLAT);
-            const penPerc = getTotalStat(caster, StatType.ARMOR_PEN_PERC);
+            const penFlat = caster.config.stats.base[StatType.ARMOR_PEN] || 0;
+            const penPerc = caster.config.stats.percent[StatType.ARMOR_PEN] || 0;
+
             const effectiveArmor = Math.max(0, (armor * (1 - penPerc / 100)) - penFlat);
             const mitigation = effectiveArmor > 0 ? (100 / (100 + effectiveArmor)) : 1; 
             
@@ -363,14 +370,16 @@ export const processSkill = (
                 type: 'DAMAGE',
                 targetId: effectTarget.id,
                 value: damage,
+                isCrit: isCrit,
                 text: isCrit ? '暴击!' : '',
                 color: isCrit ? '#fca5a5' : '#ef4444'
             });
 
         } else if (effect.type === 'DAMAGE_MAGIC') {
             const mr = getTotalStat(effectTarget, StatType.MR);
-            const penFlat = getTotalStat(caster, StatType.MAGIC_PEN_FLAT);
-            const penPerc = getTotalStat(caster, StatType.MAGIC_PEN_PERC);
+            const penFlat = caster.config.stats.base[StatType.MAGIC_PEN] || 0;
+            const penPerc = caster.config.stats.percent[StatType.MAGIC_PEN] || 0;
+
             const effectiveMr = Math.max(0, (mr * (1 - penPerc / 100)) - penFlat);
             const mitigation = effectiveMr > 0 ? (100 / (100 + effectiveMr)) : 1; 
             
@@ -467,6 +476,7 @@ export const processSkill = (
                             visual: effect.visual
                         });
                     } else if (typeof effectTarget.config.stats.base[stat] === 'number') {
+                        // Modifying base stat (buff/debuff)
                         effectTarget.config.stats.base[stat] += val;
                         const sign = val >= 0 ? '+' : '';
                         

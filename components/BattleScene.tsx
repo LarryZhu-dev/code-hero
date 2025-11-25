@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent, VisualShape, AppearanceConfig } from '../types';
@@ -511,12 +512,34 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 return null;
             };
 
-            const spawnText = (text: string, x: number, y: number, color: string = '#ffffff') => {
+            const spawnText = (text: string, x: number, y: number, color: string = '#ffffff', isCrit: boolean = false) => {
+                const container = new PIXI.Container();
+                container.x = x;
+                container.y = y - 100;
+                
+                if (isCrit) {
+                     // Draw crit icon (a spiky burst)
+                    const icon = new PIXI.Graphics();
+                    icon.poly([0,-10, 5,-5, 12,-8, 8,0, 12,8, 5,5, 0,10, -5,5, -12,8, -8,0, -12,-8, -5,-5]);
+                    icon.fill(0xffff00); // Yellow fill
+                    icon.stroke({ width: 2, color: 0xff0000 }); // Red stroke
+                    icon.x = -20; // Position to the left of text
+                    icon.y = 0;
+                    container.addChild(icon);
+                    
+                    // Add "CRIT" label tiny on top of icon? Or just rely on shape.
+                    // Let's add an exclamation mark
+                    const mark = new PIXI.Text({ text: "!", style: { fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold', fill: '#ff0000' } });
+                    mark.x = -24;
+                    mark.y = -8;
+                    container.addChild(mark);
+                }
+
                 const style = new PIXI.TextStyle({
                     fontFamily: '"Fusion Pixel", "Press Start 2P", cursive',
-                    fontSize: 20,
+                    fontSize: isCrit ? 28 : 20, // Bigger font for crit
                     fill: color,
-                    stroke: { color: '#000000', width: 4 },
+                    stroke: { color: isCrit ? '#ffffff' : '#000000', width: isCrit ? 5 : 4 }, // White outline for crit
                     align: 'center',
                     dropShadow: {
                          color: '#000000',
@@ -525,26 +548,29 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                          distance: 2,
                      },
                 });
+                
                 const basicText = new PIXI.Text({ text, style });
-                basicText.x = x - basicText.width / 2;
-                basicText.y = y - 100;
-                basicText.resolution = 2; 
-                app.stage.addChild(basicText);
+                // Center text relative to container 0,0
+                basicText.anchor.set(0.5, 0.5);
+                // If crit, offset text slightly right to not overlap icon
+                if (isCrit) basicText.x = 20;
 
-                let velY = -3;
+                container.addChild(basicText);
+                app.stage.addChild(container);
+
+                let velY = isCrit ? -5 : -3; // Pop higher for crit
                 let opacity = 1.0;
                 const animateText = () => {
-                    basicText.y += velY;
+                    container.y += velY;
                     velY += 0.15; 
                     
                     if (velY > 0) opacity -= 0.05;
-                    basicText.alpha = opacity;
+                    container.alpha = opacity;
 
                     if (opacity <= 0) {
-                        if (basicText.parent) app.stage.removeChild(basicText);
-                        // FIX: Ensure texture is destroyed to prevent leaks
-                        basicText.destroy({ texture: true });
-                    } else if (basicText.parent && !basicText.destroyed) {
+                        if (container.parent) app.stage.removeChild(container);
+                        container.destroy({ children: true });
+                    } else if (container.parent && !container.destroyed) {
                         requestAnimationFrame(animateText);
                     }
                 };
@@ -803,7 +829,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 }
                 else if (evt.type === 'DAMAGE' && target) {
                     if (evt.value) target.targetHp -= evt.value;
-                    spawnText(evt.value?.toString() || '', target.container.x, target.container.y, evt.color || '#ef4444');
+                    
+                    // Call spawnText with isCrit flag
+                    spawnText(evt.value?.toString() || '', target.container.x, target.container.y, evt.color || '#ef4444', evt.isCrit);
                     
                     const particleCount = Math.min(20, Math.floor((evt.value || 0) / 50) + 5);
                     createParticles(app, target.container.x, target.container.y, 0xef4444, particleCount, 'EXPLOSION');

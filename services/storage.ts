@@ -20,6 +20,21 @@ const migrateCharacter = (char: CharacterConfig): CharacterConfig => {
         delete char.stats.base['法力值' as any];
     }
 
+    // Migration for split penetration & tenacity removal (v2)
+    // Map Fixed Pen to Base Pen
+    if (char.stats.base['固定物穿' as any] !== undefined) {
+        char.stats.base[StatType.ARMOR_PEN] = (char.stats.base[StatType.ARMOR_PEN] || 0) + char.stats.base['固定物穿' as any];
+        delete char.stats.base['固定物穿' as any];
+    }
+    if (char.stats.base['固定法穿' as any] !== undefined) {
+        char.stats.base[StatType.MAGIC_PEN] = (char.stats.base[StatType.MAGIC_PEN] || 0) + char.stats.base['固定法穿' as any];
+        delete char.stats.base['固定法穿' as any];
+    }
+    // Remove Tenacity
+    if (char.stats.base['韧性' as any] !== undefined) {
+        delete char.stats.base['韧性' as any];
+    }
+
     // 2. Migrate Percent Stats
     if (char.stats.percent['生命值' as any] !== undefined) {
         char.stats.percent['最大生命值' as any] = char.stats.percent['生命值' as any];
@@ -28,6 +43,21 @@ const migrateCharacter = (char: CharacterConfig): CharacterConfig => {
     if (char.stats.percent['法力值' as any] !== undefined) {
         char.stats.percent['最大法力值' as any] = char.stats.percent['法力值' as any];
         delete char.stats.percent['法力值' as any];
+    }
+
+    // Migration for split penetration & tenacity removal (v2)
+    // Map Percent Pen to Percent Pen
+    if (char.stats.percent['百分比物穿' as any] !== undefined) {
+        char.stats.percent[StatType.ARMOR_PEN] = (char.stats.percent[StatType.ARMOR_PEN] || 0) + char.stats.percent['百分比物穿' as any];
+        delete char.stats.percent['百分比物穿' as any];
+    }
+    if (char.stats.percent['百分比法穿' as any] !== undefined) {
+        char.stats.percent[StatType.MAGIC_PEN] = (char.stats.percent[StatType.MAGIC_PEN] || 0) + char.stats.percent['百分比法穿' as any];
+        delete char.stats.percent['百分比法穿' as any];
+    }
+    // Remove Tenacity
+    if (char.stats.percent['韧性' as any] !== undefined) {
+        delete char.stats.percent['韧性' as any];
     }
 
     // 3. Migrate Skills (Old structure conditions[] + effects[] -> logic[])
@@ -94,13 +124,12 @@ const DEFAULT_HEROES: CharacterConfig[] = [
                 [StatType.MR]: 300, 
                 [StatType.SPEED]: 110,
                 [StatType.MANA]: 1000, 
-                [StatType.ARMOR_PEN_FLAT]: 50,
+                [StatType.ARMOR_PEN]: 50,
             },
             percent: { 
                 ...INITIAL_STATS.percent, 
                 [StatType.HP]: 300, 
                 [StatType.AD]: 200,
-                [StatType.TENACITY]: 50,
                 [StatType.MANA_REGEN]: 100, // Regenerates full mana quickly
                 [StatType.CRIT_RATE]: 50
             }
@@ -146,11 +175,11 @@ const DEFAULT_HEROES: CharacterConfig[] = [
                 [StatType.MANA]: 5000,
                 [StatType.AP]: 1200, 
                 [StatType.SPEED]: 140,
-                [StatType.MAGIC_PEN_FLAT]: 100
+                [StatType.MAGIC_PEN]: 100
             },
             percent: { 
                 ...INITIAL_STATS.percent, 
-                [StatType.MAGIC_PEN_PERC]: 60,
+                [StatType.MAGIC_PEN]: 60,
                 [StatType.AP]: 400,
                 [StatType.CRIT_DMG]: 200, // High Crit Dmg
                 [StatType.CRIT_RATE]: 40, // Magic Crit
@@ -207,8 +236,7 @@ const DEFAULT_HEROES: CharacterConfig[] = [
             percent: { 
                 ...INITIAL_STATS.percent, 
                 [StatType.HP]: 400, 
-                [StatType.ARMOR]: 300,
-                [StatType.TENACITY]: 60
+                [StatType.ARMOR]: 300
             }
         },
         appearance: { head: 'BALD', body: 'PLATE', weapon: 'HAMMER', themeColor: '#475569' },

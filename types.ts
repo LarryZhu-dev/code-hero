@@ -9,13 +9,10 @@ export enum StatType {
     SPEED = '移动速度',
     CRIT_RATE = '暴击率',
     CRIT_DMG = '暴击伤害',
-    ARMOR_PEN_FLAT = '固定物穿',
-    ARMOR_PEN_PERC = '百分比物穿',
-    MAGIC_PEN_FLAT = '固定法穿',
-    MAGIC_PEN_PERC = '百分比法穿',
+    ARMOR_PEN = '物理穿透', // Merged Flat & Percent
+    MAGIC_PEN = '法术穿透', // Merged Flat & Percent
     LIFESTEAL = '生命偷取',
     OMNIVAMP = '全能吸血',
-    TENACITY = '韧性',
     MANA = '最大法力值',
     MANA_REGEN = '法力回复',
     // Dynamic Stats (Calculated in runtime, not set in config)
@@ -38,9 +35,8 @@ export const STAT_DESCRIPTIONS: Partial<Record<StatType, string>> = {
     [StatType.CRIT_DMG]: '暴击时造成的额外伤害倍率（基础为150%）。',
     [StatType.LIFESTEAL]: '普通攻击造成的物理伤害会按比例治疗自身。',
     [StatType.OMNIVAMP]: '造成的任意伤害（物理/魔法）都会按比例治疗自身。',
-    [StatType.ARMOR_PEN_FLAT]: '无视目标固定数值的护甲。',
-    [StatType.MAGIC_PEN_FLAT]: '无视目标固定数值的魔抗。',
-    [StatType.TENACITY]: '减少受到的控制效果持续时间（暂未实装）。',
+    [StatType.ARMOR_PEN]: '无视目标护甲。固定值优先计算，百分比随后。',
+    [StatType.MAGIC_PEN]: '无视目标魔抗。固定值优先计算，百分比随后。',
     [StatType.MANA_REGEN]: '每回合回复法力值的百分比。',
 };
 
@@ -62,10 +58,7 @@ export const ONLY_BASE_STATS = [
     StatType.MR,
     StatType.SPEED,
     StatType.MANA,
-    StatType.ARMOR_PEN_FLAT,
-    StatType.MAGIC_PEN_FLAT,
-    StatType.TENACITY,
-    ...DYNAMIC_STATS // Dynamic stats don't use base/percent config logic anyway
+    ...DYNAMIC_STATS 
 ];
 
 // Stats that CANNOT have base points allocated (Percentages only)
@@ -74,8 +67,6 @@ export const ONLY_PERCENT_STATS = [
     StatType.LIFESTEAL,
     StatType.OMNIVAMP,
     StatType.CRIT_RATE,
-    StatType.ARMOR_PEN_PERC,
-    StatType.MAGIC_PEN_PERC,
     StatType.MANA_REGEN,
     ...DYNAMIC_STATS
 ];
@@ -180,6 +171,7 @@ export interface BattleEvent {
     projectileType?: 'PHYSICAL' | 'MAGIC';
     stat?: StatType;
     visual?: EffectVisual; // Carried over from Effect
+    isCrit?: boolean;
 }
 
 export interface BattleState {
