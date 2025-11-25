@@ -6,15 +6,15 @@ import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
 import HeroAvatar from './components/HeroAvatar';
 import { GameLogo } from './components/GameLogo';
-import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent, DYNAMIC_STATS, BattleSession } from './types';
+import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent, DYNAMIC_STATS, BattleSession, STAT_DESCRIPTIONS } from './types';
 import { processSkill, evaluateCondition, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
 import { TOWER_LEVELS } from './utils/towerData';
 import { 
     IconBolt, IconBoot, IconCheck, IconCrosshair, IconHeart, IconHome, IconMana, 
-    IconPlay, IconRefresh, IconSave, IconShield, IconSkull, IconStaff, IconSword,
-    IconBrokenShield, IconVampire, IconDroplet, IconSpark, IconMuscle, IconBack
+    IconPlay, IconRefresh, IconSave, IconShield, IconStaff, IconSword,
+    IconBrokenShield, IconVampire, IconDroplet, IconSpark, IconMuscle, IconBack, IconSkull
 } from './components/PixelIcons';
 import { Loader2, Lock, Flag, Eye, Copy, Check, Users, Swords, X, TowerControl as Tower, Menu, AlertTriangle } from 'lucide-react';
 
@@ -121,14 +121,19 @@ const ChallengeCard: React.FC<{
     );
 };
 
-const StatList: React.FC<{ entity: BattleEntity }> = ({ entity }) => {
+const StatList: React.FC<{ entity: BattleEntity, onHover?: (stat: StatType | null) => void }> = ({ entity, onHover }) => {
     const displayStats = Object.values(StatType).filter(s => !DYNAMIC_STATS.includes(s));
     return (
         <div className="grid grid-cols-2 gap-2">
             {displayStats.map(stat => {
                 const val = getTotalStat(entity, stat);
                 return (
-                    <div key={stat} className="bg-slate-800 p-2 border-2 border-slate-700 flex items-center justify-between group relative hover:border-slate-500 transition-colors cursor-help">
+                    <div 
+                        key={stat} 
+                        className="bg-slate-800 p-2 border-2 border-slate-700 flex items-center justify-between group relative hover:border-slate-500 transition-colors cursor-help"
+                        onMouseEnter={() => onHover && onHover(stat)}
+                        onMouseLeave={() => onHover && onHover(null)}
+                    >
                         <div className="flex items-center gap-2">
                             {getStatIcon(stat)}
                         </div>
@@ -148,6 +153,7 @@ const App: React.FC = () => {
     const [battleState, setBattleState] = useState<BattleState | null>(null);
     const [playerId] = useState(net.playerId); 
     const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
+    const [hoveredBattleStat, setHoveredBattleStat] = useState<StatType | null>(null);
     
     // Modal State
     const [showHeroSelect, setShowHeroSelect] = useState(false);
@@ -1246,7 +1252,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 
-                <StatList entity={entity} />
+                <StatList entity={entity} onHover={setHoveredBattleStat} />
             </div>
         );
     };
@@ -1342,6 +1348,25 @@ const App: React.FC = () => {
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden">
             <ReconnectModal />
+            
+            {/* BATTLE STAT HOVER TOOLTIP */}
+            {hoveredBattleStat && (
+                <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 md:top-auto md:bottom-32 md:translate-y-0 z-[1000] w-[90vw] md:w-[400px] bg-slate-900 text-white border-4 border-slate-500 shadow-[0_0_20px_rgba(0,0,0,0.8)] pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="flex items-stretch">
+                        <div className="bg-slate-800 p-4 flex items-center justify-center border-r-4 border-slate-600">
+                                {getStatIcon(hoveredBattleStat)}
+                        </div>
+                        <div className="p-4">
+                            <div className="font-bold text-yellow-400 mb-1 retro-font text-lg flex items-center gap-2">
+                                {hoveredBattleStat}
+                            </div>
+                            <div className="text-slate-300 leading-relaxed font-mono text-xs md:text-sm">
+                                {STAT_DESCRIPTIONS[hoveredBattleStat] || "暂无描述"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             <div className="h-12 border-b-4 border-slate-700 bg-slate-900 flex items-center px-4 md:px-6 justify-between select-none z-50 shrink-0">
                 <span className="retro-font text-blue-400 text-sm cursor-pointer" onClick={() => {
