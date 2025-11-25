@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent, VisualShape, AppearanceConfig } from '../types';
@@ -194,6 +195,10 @@ class PixelEntity {
         } else if (this.appearance.weapon === 'BOW') {
              this.weaponGraphics.x = 4 * 4;
         }
+    }
+
+    setWeaponVisible(visible: boolean) {
+        this.weaponGraphics.visible = visible;
     }
 
     updateBars() {
@@ -586,13 +591,118 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 } 
                 else if (evt.type === 'SKILL_EFFECT' && source) {
                     spawnText(evt.skillName || 'CAST', source.container.x, source.container.y - 40, '#fbbf24');
-                    if (evt.skillName === '普通攻击') {
-                        source.animateAttack(); 
+                    const animType = evt.visual?.animationType || 'CAST';
+
+                    if (animType === 'THRUST') {
+                        // Check if Ranged weapon (Bow/Staff) -> Then use Ranged Thrust (Shoot in place)
+                        // Otherwise Melee Thrust (Dash + Hit)
+                        const wType = source.appearance.weapon;
+                        const isRanged = wType === 'BOW' || wType === 'STAFF';
+
+                        if (isRanged) {
+                            source.animateAttack();
+                            // Spawn projectile logic
+                            const startX = source.container.x + (source.isFacingLeft ? -20 : 20);
+                            const startY = source.container.y - 40;
+                            const endX = target ? target.container.x : startX + (source.isFacingLeft ? -200 : 200);
+                            const endY = target ? target.container.y - 30 : startY;
+
+                            if (wType === 'BOW') {
+                                await new Promise<void>(resolve => {
+                                    createProjectile(app, startX, startY, endX, endY, 0x94a3b8, 100, 'LINEAR', 'CIRCLE', resolve);
+                                });
+                            } else {
+                                await new Promise<void>(resolve => {
+                                    createProjectile(app, startX, startY, endX, endY, 0xa855f7, 100, 'LINEAR', 'ORB', resolve);
+                                });
+                            }
+                        } else {
+                            // Melee Thrust
+                            if (target) {
+                                const startX = source.container.x;
+                                const endX = target.container.x > startX ? target.container.x - 60 : target.container.x + 60;
+                                // Dash
+                                for (let i = 0; i < 5; i++) {
+                                    source.container.x += (endX - startX) / 5;
+                                    await new Promise(r => setTimeout(r, 16));
+                                }
+                                source.animateAttack();
+                                createSlashEffect(app, target.container.x, target.container.y);
+                                await new Promise(r => setTimeout(r, 100));
+                                source.container.x = startX;
+                            } else {
+                                source.animateAttack();
+                            }
+                        }
+
+                    } else if (animType === 'THROW') {
+                        if (target) {
+                            // 1. Hide real weapon
+                            source.setWeaponVisible(false);
+
+                            // 2. Create Clone
+                            const weaponClone = new PIXI.Graphics();
+                            drawWeapon(weaponClone, source.appearance);
+                            weaponClone.x = source.container.x;
+                            weaponClone.y = source.container.y - 30;
+                            app.stage.addChild(weaponClone);
+
+                            const targetX = target.container.x;
+                            const targetY = target.container.y - 10; // Ground level
+
+                            // 3. Throw Arc
+                            const steps = 30;
+                            const dx = targetX - weaponClone.x;
+                            const dy = targetY - weaponClone.y;
+                            const startX = weaponClone.x;
+                            const startY = weaponClone.y;
+                            
+                            for (let i = 1; i <= steps; i++) {
+                                const t = i / steps;
+                                weaponClone.x = startX + dx * t;
+                                weaponClone.y = startY + dy * t - Math.sin(t * Math.PI) * 100; // Arc height
+                                weaponClone.rotation += 0.5;
+                                await new Promise(r => setTimeout(r, 16));
+                            }
+                            
+                            // 4. Hit Effect
+                            createParticles(app, targetX, targetY - 20, 0xffffff, 5, 'EXPLOSION');
+                            
+                            // 5. Weapon stuck in ground
+                            weaponClone.rotation = 2.5; // Stuck angle
+                            weaponClone.y = targetY;
+
+                            // 6. Character runs to weapon
+                            const runnerStartX = source.container.x;
+                            const distToWeapon = targetX > runnerStartX ? targetX - 40 : targetX + 40;
+                            
+                            for (let i = 0; i < 20; i++) {
+                                source.container.x += (distToWeapon - runnerStartX) / 20;
+                                await new Promise(r => setTimeout(r, 16));
+                            }
+
+                            // 7. Pick up
+                            weaponClone.destroy();
+                            source.setWeaponVisible(true);
+                            await new Promise(r => setTimeout(r, 200));
+
+                            // 8. Run back
+                            for (let i = 0; i < 20; i++) {
+                                source.container.x += (runnerStartX - source.container.x) * 0.2; // Ease out
+                                await new Promise(r => setTimeout(r, 16));
+                            }
+                            source.container.x = runnerStartX;
+
+                        } else {
+                            source.animateAttack();
+                        }
+
                     } else {
+                        // Default Cast
                         source.animateCast();
+                        createMagicEffect(app, source.container.x, source.container.y, 0xfbbf24);
                     }
-                    createMagicEffect(app, source.container.x, source.container.y, 0xfbbf24);
-                    await new Promise(r => setTimeout(r, 400));
+                    await new Promise(r => setTimeout(r, 200));
                 }
                 else if (evt.type === 'DAMAGE' && target) {
                     if (evt.value) target.targetHp -= evt.value;

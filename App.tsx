@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
+import HeroAvatar from './components/HeroAvatar';
 import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent, DYNAMIC_STATS } from './types';
 import { processSkill, evaluateCondition, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
@@ -822,7 +823,10 @@ const App: React.FC = () => {
         return (
             <div className={`absolute top-20 bottom-24 w-64 ${isRight ? 'right-4' : 'left-4'} bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-4 flex flex-col z-20 overflow-y-auto custom-scrollbar shadow-2xl`}>
                 <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-2">
-                    <div className={`w-12 h-12 rounded-lg shadow-lg border-2 ${isRight ? 'border-red-500' : 'border-blue-500'}`} style={{backgroundColor: entity.config.avatarColor}}></div>
+                    {/* Replaced Div with HeroAvatar */}
+                    <div className={`rounded-lg shadow-lg border-2 overflow-hidden ${isRight ? 'border-red-500' : 'border-blue-500'}`}>
+                        <HeroAvatar appearance={entity.config.appearance!} size={48} bgColor={entity.config.avatarColor} />
+                    </div>
                     <div className="flex-1 min-w-0">
                         <div className="font-bold text-white truncate">{entity.config.name}</div>
                         <div className="text-[10px] text-slate-400 font-mono flex flex-col gap-0.5">
@@ -883,7 +887,9 @@ const App: React.FC = () => {
                         <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
                             <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg shadow-lg" style={{backgroundColor: inspectedEntity.config.avatarColor}}></div>
+                                    <div className="rounded-lg shadow-lg overflow-hidden border border-slate-600">
+                                        <HeroAvatar appearance={inspectedEntity.config.appearance!} size={48} bgColor={inspectedEntity.config.avatarColor} />
+                                    </div>
                                     <div>
                                         <h3 className="text-xl font-bold text-white">{inspectedEntity.config.name}</h3>
                                         <div className="text-xs text-slate-400">技能列表</div>
@@ -1005,7 +1011,9 @@ const App: React.FC = () => {
                         <h2 className="text-3xl font-bold retro-font">选择战斗模式</h2>
                         
                         <div className="flex items-center gap-4 bg-slate-800 p-4 rounded-xl border border-slate-700 mb-4">
-                            <div className="w-12 h-12 rounded bg-blue-500" style={{backgroundColor: myChar.avatarColor}}></div>
+                             <div className="rounded overflow-hidden border border-slate-600">
+                                <HeroAvatar appearance={myChar.appearance!} size={64} bgColor={myChar.avatarColor} />
+                            </div>
                             <div>
                                 <div className="text-xs text-slate-400">当前使用</div>
                                 <div className="font-bold text-xl">{myChar.name}</div>
@@ -1044,6 +1052,7 @@ const App: React.FC = () => {
 
                 {view === 'LOBBY' && myChar && (
                     <div className="flex flex-col items-center justify-center h-full gap-8 p-12 relative">
+                        {/* ... existing Lobby layout ... */}
                         <div className="absolute top-12 flex flex-col items-center gap-2">
                             <div className="text-slate-400 text-sm font-bold uppercase tracking-widest">房间号</div>
                             <div className="flex items-center gap-4">
@@ -1070,7 +1079,14 @@ const App: React.FC = () => {
                             {/* Host Card */}
                             <div className="flex flex-col items-center gap-4">
                                 <div className={`relative w-48 h-64 bg-slate-800 rounded-xl border-2 flex flex-col items-center justify-center p-4 transition-all ${myRole === 'HOST' ? 'border-yellow-500' : 'border-slate-600'}`}>
-                                    <div className="w-20 h-20 rounded-lg mb-4 shadow-lg" style={{backgroundColor: (myRole === 'HOST' ? myChar : opponentChar)?.avatarColor || '#333'}}></div>
+                                    {/* Avatar */}
+                                    <div className="rounded-lg mb-4 shadow-lg overflow-hidden border border-slate-600">
+                                        <HeroAvatar 
+                                            appearance={(myRole === 'HOST' ? myChar : opponentChar)?.appearance!} 
+                                            size={80} 
+                                            bgColor={(myRole === 'HOST' ? myChar : opponentChar)?.avatarColor || '#333'} 
+                                        />
+                                    </div>
                                     <h3 className="font-bold text-lg">{(myRole === 'HOST' ? myChar : opponentChar)?.name || '等待中...'}</h3>
                                     <span className="text-xs text-yellow-500 mb-4 font-bold">房主 (HOST)</span>
                                     
@@ -1088,7 +1104,13 @@ const App: React.FC = () => {
                             <div className="flex flex-col items-center gap-4">
                                 {(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : (myRole === 'SPECTATOR' ? spectatorChallengerChar : null))) ? (
                                     <div className={`relative w-48 h-64 bg-slate-800 rounded-xl border-2 flex flex-col items-center justify-center p-4 transition-all ${(myRole === 'CHALLENGER' ? amIReady : opponentReady) ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'border-slate-600'}`}>
-                                        <div className="w-20 h-20 rounded-lg mb-4 shadow-lg" style={{backgroundColor: (myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.avatarColor}}></div>
+                                        <div className="rounded-lg mb-4 shadow-lg overflow-hidden border border-slate-600">
+                                            <HeroAvatar 
+                                                appearance={(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.appearance!} 
+                                                size={80} 
+                                                bgColor={(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.avatarColor} 
+                                            />
+                                        </div>
                                         <h3 className="font-bold text-lg">{(myRole === 'CHALLENGER' ? myChar : (myRole === 'HOST' ? opponentChar : spectatorChallengerChar))?.name}</h3>
                                         <span className="text-xs text-blue-400 mb-4 font-bold">挑战者</span>
                                         
@@ -1211,6 +1233,7 @@ const App: React.FC = () => {
                         {/* Controls (Bottom Center) */}
                         <div className={`absolute bottom-4 w-full max-w-4xl left-1/2 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-8 duration-500 transition-all`}>
                         {(() => {
+                            // ... (Existing controls logic) ...
                             const isMyTurn = battleState.activePlayerId === playerId;
                             const isSpectating = myRole === 'SPECTATOR';
                             
@@ -1261,8 +1284,6 @@ const App: React.FC = () => {
                                 );
                             }
 
-                            // --- GAME ACTIVE UI ---
-                            // Render skill bar regardless of turn (unless Spectating)
                             if (!isSpectating) {
                                 return (
                                     <>
@@ -1274,7 +1295,6 @@ const App: React.FC = () => {
 
                                         <div className="flex justify-center items-center gap-4">
                                             {(() => {
-                                                // Always show MY skills
                                                 const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                 const sortedSkills = getSortedSkills(myEntity);
                                                 
@@ -1300,6 +1320,7 @@ const App: React.FC = () => {
                                                                 ${isSelected ? (isPassive ? 'border-indigo-400' : canAfford ? 'border-blue-400' : 'border-red-500') : 'border-slate-700'}
                                                             `}
                                                         >
+                                                            {/* ... existing skill button content ... */}
                                                             {isPassive && (
                                                                 <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500 whitespace-nowrap z-20 shadow-sm">
                                                                     被动

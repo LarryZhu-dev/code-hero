@@ -93,10 +93,12 @@ export interface Formula {
 }
 
 export type VisualShape = 'CIRCLE' | 'SQUARE' | 'STAR' | 'BEAM' | 'ORB';
+export type AnimationType = 'CAST' | 'THRUST' | 'THROW';
 
 export interface EffectVisual {
     color: string; // Hex Code
     shape?: VisualShape; // Only for Projectiles
+    animationType?: AnimationType; // Custom animation trigger
 }
 
 export interface Effect {

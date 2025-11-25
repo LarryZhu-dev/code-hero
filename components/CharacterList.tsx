@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { CharacterConfig, INITIAL_STATS } from '../types';
 import { StorageService } from '../services/storage';
 import { Plus, Trash2, Edit, Play, Swords, Download } from 'lucide-react';
+import HeroAvatar from './HeroAvatar';
 
 interface Props {
     onSelect: (char: CharacterConfig) => void;
@@ -98,7 +100,9 @@ const CharacterList: React.FC<Props> = ({ onSelect, onEdit, onBack }) => {
                             className="group bg-slate-800 rounded-xl border border-slate-700 p-4 hover:border-blue-500 hover:bg-slate-800/80 transition-all cursor-pointer relative overflow-hidden shadow-lg"
                         >
                             <div className="flex items-center gap-4 mb-4">
-                                <div className="w-16 h-16 rounded-lg shadow-lg" style={{backgroundColor: hero.avatarColor}}></div>
+                                <div className="rounded-lg shadow-lg overflow-hidden border border-slate-600">
+                                    <HeroAvatar appearance={hero.appearance!} size={64} bgColor={hero.avatarColor} />
+                                </div>
                                 <div>
                                     <h3 className="font-bold text-lg text-white group-hover:text-blue-300 transition-colors">{hero.name}</h3>
                                     <div className="text-xs text-slate-400 flex gap-2">
