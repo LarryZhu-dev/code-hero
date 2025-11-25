@@ -1,6 +1,7 @@
 
+
 export enum StatType {
-    HP = '生命值',
+    HP = '最大生命值',
     AD = '攻击力',
     AP = '法术强度',
     ARMOR = '护甲',
@@ -15,7 +16,7 @@ export enum StatType {
     LIFESTEAL = '生命偷取',
     OMNIVAMP = '全能吸血',
     TENACITY = '韧性',
-    MANA = '法力值',
+    MANA = '最大法力值',
     MANA_REGEN = '法力回复',
     // Dynamic Stats (Calculated in runtime, not set in config)
     CURRENT_HP = '当前生命值',
@@ -98,12 +99,16 @@ export interface Effect {
     formula: Formula; 
 }
 
+export interface SkillLogic {
+    condition?: Condition; // Optional: If undefined, treats as "Always True"
+    effect: Effect;
+}
+
 export interface Skill {
     id: string;
     name: string;
     isPassive: boolean;
-    conditions: Condition[];
-    effects: Effect[];
+    logic: SkillLogic[];
 }
 
 export interface CharacterConfig {

@@ -1,6 +1,8 @@
+
+
 import React, { useState, useEffect } from 'react';
-import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight, ArrowLeft } from 'lucide-react';
+import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, Condition } from '../types';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight, ArrowLeft, GitBranch } from 'lucide-react';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
 
 interface Props {
@@ -76,9 +78,19 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
             skills: [...char.skills, {
                 id: generateId(),
                 name: '新技能',
-                isPassive: false, // Default to Active
-                conditions: [],
-                effects: []
+                isPassive: false, 
+                logic: [{
+                    condition: undefined, // Default Always
+                    effect: { 
+                        type: 'DAMAGE_PHYSICAL', 
+                        target: 'ENEMY', 
+                        formula: {
+                            factorA: { target: 'SELF', stat: StatType.AD },
+                            operator: '*',
+                            factorB: { target: 'SELF', stat: StatType.CRIT_RATE } 
+                        }
+                    }
+                }]
             }]
         });
     };
@@ -90,21 +102,12 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     };
 
     const handleSave = () => {
-        // Clean up: Active skills shouldn't have conditions
-        const cleanedSkills = char.skills.map(s => {
-            if (!s.isPassive) {
-                return { ...s, conditions: [] };
-            }
-            return s;
-        });
-        onSave({ ...char, skills: cleanedSkills });
+        onSave(char);
     };
 
     const exportConfig = () => {
         try {
             const json = JSON.stringify(char);
-            // Fix: Encode Unicode characters to UTF-8 bytes before Base64 encoding
-            // This prevents "InvalidCharacterError" for Chinese characters
             const bytes = new TextEncoder().encode(json);
             const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
             const b64 = btoa(binString);
@@ -299,40 +302,52 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
         setIsDynamic(hasDynamicStats(skill));
     }, [skill, stats]);
 
-    const addCondition = () => {
-        if (skill.conditions.length >= 3) return;
+    const addBranch = () => {
+        if (skill.logic.length >= 3) return;
         onChange({
             ...skill,
-            conditions: [...skill.conditions, { sourceTarget: 'SELF', variable: 'HP%', operator: '<', value: 50 }]
-        });
-    };
-
-    const addEffect = () => {
-        if (skill.effects.length >= 3) return;
-        onChange({
-            ...skill,
-            effects: [...skill.effects, { 
-                type: 'DAMAGE_PHYSICAL', 
-                target: 'ENEMY', 
-                formula: {
-                    factorA: { target: 'SELF', stat: StatType.AD },
-                    operator: '*',
-                    factorB: { target: 'SELF', stat: StatType.CRIT_RATE } 
+            logic: [...skill.logic, { 
+                condition: undefined, 
+                effect: { 
+                    type: 'DAMAGE_PHYSICAL', 
+                    target: 'ENEMY', 
+                    formula: {
+                        factorA: { target: 'SELF', stat: StatType.AD },
+                        operator: '*',
+                        factorB: { target: 'SELF', stat: StatType.CRIT_RATE } 
+                    }
                 }
             }]
         });
     };
 
-    const updateEffect = (index: number, updates: Partial<Effect>) => {
-        const newEffects = [...skill.effects];
-        
-        // Safety check for targetStat when switching to INCREASE/DECREASE
-        if ((updates.type === 'INCREASE_STAT' || updates.type === 'DECREASE_STAT') && !newEffects[index].targetStat && !updates.targetStat) {
-            updates.targetStat = StatType.CURRENT_HP; // Default to HP
+    const updateBranch = (index: number, updates: Partial<SkillLogic>) => {
+        const newLogic = [...skill.logic];
+        newLogic[index] = { ...newLogic[index], ...updates };
+        onChange({ ...skill, logic: newLogic });
+    };
+
+    // Helper to update specific parts of condition/effect easily
+    const updateEffect = (branchIndex: number, updates: Partial<Effect>) => {
+        const branch = skill.logic[branchIndex];
+        // Safety check for targetStat
+        if ((updates.type === 'INCREASE_STAT' || updates.type === 'DECREASE_STAT') && !branch.effect.targetStat && !updates.targetStat) {
+            updates.targetStat = StatType.CURRENT_HP;
         }
-        
-        newEffects[index] = { ...newEffects[index], ...updates };
-        onChange({ ...skill, effects: newEffects });
+        updateBranch(branchIndex, { effect: { ...branch.effect, ...updates } });
+    };
+
+    const toggleCondition = (branchIndex: number) => {
+        const branch = skill.logic[branchIndex];
+        if (branch.condition) {
+            // Remove condition (Make Always)
+            updateBranch(branchIndex, { condition: undefined });
+        } else {
+            // Add default condition
+            updateBranch(branchIndex, { 
+                condition: { sourceTarget: 'SELF', variable: 'HP%', operator: '<', value: 50 } 
+            });
+        }
     };
 
     return (
@@ -380,186 +395,147 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                 </div>
             </div>
             
-            <div className="p-5 space-y-6 bg-slate-900/50">
-                {/* Conditions (Only for Passive) */}
-                {skill.isPassive ? (
-                    <div className="relative animate-in fade-in duration-300">
-                        <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-800"></div>
-                        <div className="flex justify-between items-center mb-3 pl-6">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-yellow-500"></div> 触发条件 (IF)
+            <div className="p-5 space-y-4 bg-slate-900/50">
+                {/* Logic Branches */}
+                {skill.logic.map((branch, i) => (
+                    <div key={i} className="relative bg-slate-950/80 rounded-xl border border-slate-800 shadow-sm overflow-hidden hover:border-slate-700 transition-all">
+                         <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-yellow-500 to-green-500"></div>
+                         
+                         {/* Header / Toolbar */}
+                         <div className="flex justify-between items-center px-4 py-2 border-b border-slate-900 bg-slate-900/50">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-2">
+                                <GitBranch size={12}/> Logic Block #{i + 1}
                             </span>
-                            {skill.conditions.length < 3 && (
-                                <button onClick={addCondition} className="text-xs text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-950/30 transition-colors">
-                                    <Plus size={12}/> 添加判定
-                                </button>
-                            )}
-                        </div>
-                        
-                        <div className="space-y-2 pl-6">
-                            {skill.conditions.length === 0 && (
-                                <div className="text-xs text-slate-600 py-2 px-3 border border-dashed border-slate-800 rounded-lg flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-                                    无条件 (在每回合结束时尝试触发)
-                                </div>
-                            )}
-                            {skill.conditions.map((cond, i) => (
-                                <div key={i} className="flex flex-wrap gap-2 items-center bg-slate-950/80 p-2 rounded-lg border border-slate-800 shadow-sm group/line hover:border-slate-700 transition-colors">
-                                    <span className="text-yellow-600 font-mono text-xs font-bold px-1">IF</span>
-                                    <select 
-                                        className={styles.target}
-                                        value={cond.sourceTarget}
-                                        onChange={(e) => {
-                                            const nc = [...skill.conditions];
-                                            nc[i].sourceTarget = e.target.value as TargetType;
-                                            onChange({...skill, conditions: nc});
-                                        }}
-                                    >
-                                        <option value="SELF">自己</option>
-                                        <option value="ENEMY">敌人</option>
-                                    </select>
-                                    <span className="text-slate-600 font-mono">.</span>
-                                    <select 
-                                        className={styles.variable}
-                                        value={cond.variable}
-                                        onChange={(e) => {
-                                            const nc = [...skill.conditions];
-                                            nc[i].variable = e.target.value as VariableSource;
-                                            onChange({...skill, conditions: nc});
-                                        }}
-                                    >
-                                        <option value="HP">当前生命值</option>
-                                        <option value="HP%">当前生命百分比</option>
-                                        <option value="HP_LOST">已损生命值</option>
-                                        <option value="HP_LOST%">已损生命百分比</option>
-                                        <option value="MANA">当前法力</option>
-                                        <option value="MANA%">法力百分比</option>
-                                        <option value="TURN">当前回合</option>
-                                    </select>
-                                    <select 
-                                        className={styles.operator}
-                                        value={cond.operator}
-                                        onChange={(e) => {
-                                            const nc = [...skill.conditions];
-                                            nc[i].operator = e.target.value as Operator;
-                                            onChange({...skill, conditions: nc});
-                                        }}
-                                    >
-                                        {['>', '<', '==', '>=', '<=', '!='].map(op => <option key={op} value={op}>{op}</option>)}
-                                    </select>
-                                    <input 
-                                        type="number" 
-                                        className={styles.input}
-                                        value={cond.value}
-                                        onChange={(e) => {
-                                            const nc = [...skill.conditions];
-                                            nc[i].value = parseFloat(e.target.value);
-                                            onChange({...skill, conditions: nc});
-                                        }}
-                                    />
-                                    <button 
-                                        className="ml-auto text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 opacity-0 group-hover/line:opacity-100 transition-all"
-                                        onClick={() => {
-                                            const nc = [...skill.conditions];
-                                            nc.splice(i, 1);
-                                            onChange({...skill, conditions: nc});
-                                        }}
-                                    >
-                                        <Trash2 size={14}/>
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="pl-6 py-2 border-l-2 border-slate-800 text-xs text-slate-500 italic flex items-center gap-2">
-                        <ArrowRight size={14}/>
-                        主动技能：由玩家手动选择释放，无需设置触发条件。
-                    </div>
-                )}
-
-                {/* Effects */}
-                <div className="relative">
-                    <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-800"></div>
-                    <div className="flex justify-between items-center mb-3 pl-6">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-green-500"></div> 执行效果 (THEN)
-                        </span>
-                         {skill.effects.length < 3 && (
-                            <button onClick={addEffect} className="text-xs text-green-400 hover:text-green-300 font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-green-950/30 transition-colors">
-                                <Plus size={12}/> 添加动作
+                            <button 
+                                className="text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 transition-all"
+                                onClick={() => {
+                                    const nl = [...skill.logic];
+                                    nl.splice(i, 1);
+                                    onChange({...skill, logic: nl});
+                                }}
+                            >
+                                <Trash2 size={14}/>
                             </button>
-                        )}
-                    </div>
+                         </div>
 
-                    <div className="space-y-3 pl-6">
-                         {skill.effects.length === 0 && (
-                            <div className="text-xs text-slate-600 py-2 px-3 border border-dashed border-slate-800 rounded-lg flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-slate-600"></div>
-                                无效果
-                            </div>
-                        )}
-                        {skill.effects.map((eff, i) => (
-                            <div key={i} className="bg-slate-950/80 p-3 rounded-lg border border-slate-800 shadow-sm group/line hover:border-slate-700 transition-colors relative overflow-hidden">
-                                <div className="flex flex-wrap gap-2 items-center mb-2 pb-2 border-b border-slate-900">
-                                    <span className="text-green-600 font-mono text-xs font-bold px-1">DO</span>
-                                    <select 
-                                        className={styles.action}
-                                        value={eff.type}
-                                        onChange={(e) => updateEffect(i, { type: e.target.value as EffectType })}
-                                    >
-                                        <option value="DAMAGE_PHYSICAL">造成物理伤害</option>
-                                        <option value="DAMAGE_MAGIC">造成魔法伤害</option>
-                                        <option value="INCREASE_STAT">增加</option>
-                                        <option value="DECREASE_STAT">减少</option>
-                                    </select>
-                                    
-                                    {(eff.type === 'INCREASE_STAT' || eff.type === 'DECREASE_STAT') && (
+                         <div className="p-3 grid gap-3">
+                            {/* IF Condition */}
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={() => toggleCondition(i)}
+                                    className={`text-xs font-mono font-bold px-2 py-1 rounded transition-colors ${branch.condition ? 'bg-yellow-950 text-yellow-500 border border-yellow-800' : 'bg-slate-800 text-slate-500 border border-slate-700 hover:bg-yellow-900/30 hover:text-yellow-400'}`}
+                                >
+                                    IF
+                                </button>
+                                
+                                {branch.condition ? (
+                                    <div className="flex flex-wrap gap-2 items-center animate-in fade-in slide-in-from-left-2 duration-200">
+                                        <select 
+                                            className={styles.target}
+                                            value={branch.condition.sourceTarget}
+                                            onChange={(e) => updateBranch(i, { condition: { ...branch.condition!, sourceTarget: e.target.value as TargetType } })}
+                                        >
+                                            <option value="SELF">自己</option>
+                                            <option value="ENEMY">敌人</option>
+                                        </select>
+                                        <span className="text-slate-600 font-mono">.</span>
                                         <select 
                                             className={styles.variable}
-                                            value={eff.targetStat || StatType.CURRENT_HP}
+                                            value={branch.condition.variable}
+                                            onChange={(e) => updateBranch(i, { condition: { ...branch.condition!, variable: e.target.value as VariableSource } })}
+                                        >
+                                            <option value="HP">当前生命值</option>
+                                            <option value="HP%">当前生命百分比</option>
+                                            <option value="HP_LOST">已损生命值</option>
+                                            <option value="HP_LOST%">已损生命百分比</option>
+                                            <option value="MANA">当前法力</option>
+                                            <option value="MANA%">法力百分比</option>
+                                            <option value="TURN">当前回合</option>
+                                        </select>
+                                        <select 
+                                            className={styles.operator}
+                                            value={branch.condition.operator}
+                                            onChange={(e) => updateBranch(i, { condition: { ...branch.condition!, operator: e.target.value as Operator } })}
+                                        >
+                                            {['>', '<', '==', '>=', '<=', '!='].map(op => <option key={op} value={op}>{op}</option>)}
+                                        </select>
+                                        <input 
+                                            type="number" 
+                                            className={styles.input}
+                                            value={branch.condition.value}
+                                            onChange={(e) => updateBranch(i, { condition: { ...branch.condition!, value: parseFloat(e.target.value) } })}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-slate-600 font-mono italic">
+                                        [ Always True ] <span className="text-slate-700">- Click IF to add condition</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* THEN Effect */}
+                            <div className="flex flex-wrap items-center gap-2 pl-8 relative">
+                                <div className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 border-l-2 border-b-2 border-slate-800 rounded-bl-lg"></div>
+                                <span className="text-green-600 font-mono text-xs font-bold px-2 py-1 bg-green-950/20 border border-green-900/50 rounded">DO</span>
+                                
+                                <select 
+                                    className={styles.action}
+                                    value={branch.effect.type}
+                                    onChange={(e) => updateEffect(i, { type: e.target.value as EffectType })}
+                                >
+                                    <option value="DAMAGE_PHYSICAL">造成物理伤害</option>
+                                    <option value="DAMAGE_MAGIC">造成魔法伤害</option>
+                                    <option value="INCREASE_STAT">增加</option>
+                                    <option value="DECREASE_STAT">减少</option>
+                                </select>
+                                
+                                {(branch.effect.type === 'INCREASE_STAT' || branch.effect.type === 'DECREASE_STAT') ? (
+                                    <>
+                                        <select 
+                                            className={styles.target}
+                                            value={branch.effect.target}
+                                            onChange={(e) => updateEffect(i, { target: e.target.value as TargetType })}
+                                        >
+                                            <option value="ENEMY">敌人</option>
+                                            <option value="SELF">自己</option>
+                                        </select>
+                                        <span className="text-slate-500 text-xs">的</span>
+                                        <select 
+                                            className={styles.variable}
+                                            value={branch.effect.targetStat || StatType.CURRENT_HP}
                                             onChange={(e) => updateEffect(i, { targetStat: e.target.value as StatType })}
                                         >
                                             <option value={StatType.CURRENT_HP}>当前生命值 (Heal/Dmg)</option>
                                             <option value={StatType.CURRENT_MANA}>当前法力值 (MP)</option>
                                             {Object.values(StatType)
-                                                .filter(s => !DYNAMIC_STATS.includes(s) && s !== StatType.CURRENT_MANA) // Show generic stats like AD/AP
+                                                .filter(s => !DYNAMIC_STATS.includes(s) && s !== StatType.CURRENT_MANA) 
                                                 .map(s => <option key={s} value={s}>{s}</option>)
                                             }
                                         </select>
-                                    )}
-
-                                    <span className="text-slate-500 text-xs">的</span>
-                                    <select 
-                                        className={styles.target}
-                                        value={eff.target}
-                                        onChange={(e) => updateEffect(i, { target: e.target.value as TargetType })}
-                                    >
-                                        <option value="ENEMY">敌人</option>
-                                        <option value="SELF">自己</option>
-                                    </select>
-                                    <button 
-                                        className="ml-auto text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 opacity-0 group-hover/line:opacity-100 transition-all"
-                                        onClick={() => {
-                                            const ne = [...skill.effects];
-                                            ne.splice(i, 1);
-                                            onChange({...skill, effects: ne});
-                                        }}
-                                    >
-                                        <Trash2 size={14}/>
-                                    </button>
-                                </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="text-slate-500 text-xs">对</span>
+                                        <select 
+                                            className={styles.target}
+                                            value={branch.effect.target}
+                                            onChange={(e) => updateEffect(i, { target: e.target.value as TargetType })}
+                                        >
+                                            <option value="ENEMY">敌人</option>
+                                            <option value="SELF">自己</option>
+                                        </select>
+                                    </>
+                                )}
                                 
-                                <div className="flex flex-wrap items-center gap-2 pl-4">
+                                <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-xs text-slate-500 font-mono">=</span>
-                                    
                                     {/* Formula Left */}
                                     <div className="flex items-center bg-slate-900/50 rounded border border-slate-800 px-1 py-0.5">
                                         <select 
                                             className="bg-transparent text-indigo-300 text-xs font-mono outline-none appearance-none cursor-pointer hover:text-white"
-                                            value={eff.formula.factorA.target}
+                                            value={branch.effect.formula.factorA.target}
                                             onChange={(e) => {
-                                                const f = { ...eff.formula, factorA: { ...eff.formula.factorA, target: e.target.value as TargetType } };
+                                                const f = { ...branch.effect.formula, factorA: { ...branch.effect.formula.factorA, target: e.target.value as TargetType } };
                                                 updateEffect(i, { formula: f });
                                             }}
                                         >
@@ -569,14 +545,14 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                         <span className="text-slate-600 px-0.5">.</span>
                                         <select 
                                             className="bg-transparent text-slate-300 text-xs font-mono outline-none appearance-none cursor-pointer hover:text-white"
-                                            value={eff.formula.factorA.stat}
+                                            value={branch.effect.formula.factorA.stat}
                                             onChange={(e) => {
-                                                const f = { ...eff.formula, factorA: { ...eff.formula.factorA, stat: e.target.value as StatType } };
+                                                const f = { ...branch.effect.formula, factorA: { ...branch.effect.formula.factorA, stat: e.target.value as StatType } };
                                                 updateEffect(i, { formula: f });
                                             }}
                                         >
                                             {Object.values(StatType)
-                                                .filter(s => s !== StatType.CURRENT_MANA) // Filter CURRENT_MANA from source formula if preferred, or allow it
+                                                .filter(s => s !== StatType.CURRENT_MANA)
                                                 .map(s => <option key={s} value={s}>{s}</option>)
                                             }
                                         </select>
@@ -585,9 +561,9 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                     {/* Operator */}
                                     <select 
                                         className={styles.operator}
-                                        value={eff.formula.operator}
+                                        value={branch.effect.formula.operator}
                                         onChange={(e) => {
-                                            const f = { ...eff.formula, operator: e.target.value as FormulaOp };
+                                            const f = { ...branch.effect.formula, operator: e.target.value as FormulaOp };
                                             updateEffect(i, { formula: f });
                                         }}
                                     >
@@ -601,9 +577,9 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                     <div className="flex items-center bg-slate-900/50 rounded border border-slate-800 px-1 py-0.5">
                                         <select 
                                             className="bg-transparent text-indigo-300 text-xs font-mono outline-none appearance-none cursor-pointer hover:text-white"
-                                            value={eff.formula.factorB.target}
+                                            value={branch.effect.formula.factorB.target}
                                             onChange={(e) => {
-                                                const f = { ...eff.formula, factorB: { ...eff.formula.factorB, target: e.target.value as TargetType } };
+                                                const f = { ...branch.effect.formula, factorB: { ...branch.effect.formula.factorB, target: e.target.value as TargetType } };
                                                 updateEffect(i, { formula: f });
                                             }}
                                         >
@@ -613,9 +589,9 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                         <span className="text-slate-600 px-0.5">.</span>
                                         <select 
                                             className="bg-transparent text-slate-300 text-xs font-mono outline-none appearance-none cursor-pointer hover:text-white"
-                                            value={eff.formula.factorB.stat}
+                                            value={branch.effect.formula.factorB.stat}
                                             onChange={(e) => {
-                                                const f = { ...eff.formula, factorB: { ...eff.formula.factorB, stat: e.target.value as StatType } };
+                                                const f = { ...branch.effect.formula, factorB: { ...branch.effect.formula.factorB, stat: e.target.value as StatType } };
                                                 updateEffect(i, { formula: f });
                                             }}
                                         >
@@ -627,9 +603,22 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                     </div>
                                 </div>
                             </div>
-                        ))}
+                         </div>
                     </div>
-                </div>
+                ))}
+
+                {skill.logic.length < 3 ? (
+                    <button 
+                        onClick={addBranch}
+                        className="w-full py-3 border-2 border-dashed border-slate-800 rounded-xl text-slate-500 hover:text-blue-400 hover:border-blue-500/50 hover:bg-blue-950/20 transition-all flex items-center justify-center gap-2"
+                    >
+                        <Plus size={16}/> 添加逻辑块 ({skill.logic.length}/3)
+                    </button>
+                ) : (
+                    <div className="text-center text-xs text-slate-600 py-2">
+                        已达到逻辑块上限 (3/3)
+                    </div>
+                )}
             </div>
         </div>
     );

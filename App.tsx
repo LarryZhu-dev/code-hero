@@ -1,12 +1,14 @@
+
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CharacterEditor from './components/CharacterEditor';
 import CharacterList from './components/CharacterList';
 import BattleScene from './components/BattleScene';
 import { CharacterConfig, BattleState, BattleEntity, StatType, Skill, BattleMode, BattleEvent } from './types';
-import { processSkill, checkConditions, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
+import { processSkill, evaluateCondition, getTotalStat, calculateManaCost, processBasicAttack, hasDynamicStats } from './utils/gameEngine';
 import { StorageService } from './services/storage';
 import { net } from './services/mqtt';
-import { Swords, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe, CheckCircle2, PlayCircle, Loader2, Eye, Copy, Check, X, Shield, Lock } from 'lucide-react';
+import { Swords, Users, ArrowLeft, ArrowRight, CornerDownLeft, Flag, Zap, Cpu, Globe, CheckCircle2, PlayCircle, Loader2, Eye, Copy, Check, X, Shield, Lock, GitBranch } from 'lucide-react';
 
 type AppView = 'MENU' | 'HERO_LIST' | 'EDITOR' | 'BATTLE_SETUP' | 'LOBBY' | 'BATTLE';
 type UserRole = 'HOST' | 'CHALLENGER' | 'SPECTATOR' | 'NONE';
@@ -427,7 +429,7 @@ const App: React.FC = () => {
         } else {
             const skill = active.config.skills.find(s => s.id === skillId);
             if (skill) {
-                const success = processSkill(skill, active, opponent, pushEvent);
+                const success = processSkill(skill, active, opponent, pushEvent, newState.turn);
                 if (!success) {
                     processingTurnRef.current = false;
                     return; 
@@ -454,26 +456,21 @@ const App: React.FC = () => {
                     const uniqueTriggerKey = `${entity.id}-${s.id}`;
                     if (triggeredSkillIds.has(uniqueTriggerKey)) return;
 
-                    if (checkConditions(s, entity, enemyOfEntity, newState.turn)) {
-                        // Calculate cost using current entity state
-                        const cost = calculateManaCost(s, entity.config.stats, entity);
-                        
-                        // Check Mana before triggering
-                        if (entity.currentMana >= cost) {
-                             const success = processSkill(s, entity, enemyOfEntity, pushEvent);
-                             if (success) {
-                                 passiveTriggered = true;
-                                 triggeredSkillIds.add(uniqueTriggerKey);
-                                 // Add visual floating text for passive
-                                 pushEvent({ 
-                                    type: 'SKILL_EFFECT', 
-                                    sourceId: entity.id, 
-                                    skillName: s.name,
-                                    text: undefined 
-                                 });
-                                 pushEvent({ type: 'TEXT', text: `[被动] ${entity.config.name} 触发 ${s.name}`});
-                             }
-                        }
+                    // New processSkill signature handles condition checking inside
+                    // Passing isPassiveTrigger=true makes it only return true (and cost mana) if conditions match
+                    const success = processSkill(s, entity, enemyOfEntity, pushEvent, newState.turn, true);
+                    
+                    if (success) {
+                        passiveTriggered = true;
+                        triggeredSkillIds.add(uniqueTriggerKey);
+                        // Add visual floating text for passive
+                        pushEvent({ 
+                        type: 'SKILL_EFFECT', 
+                        sourceId: entity.id, 
+                        skillName: s.name,
+                        text: undefined 
+                        });
+                        pushEvent({ type: 'TEXT', text: `[被动] ${entity.config.name} 触发 ${s.name}`});
                     }
                 });
             });
@@ -534,9 +531,6 @@ const App: React.FC = () => {
         const nextActive = newState.activePlayerId === newState.p1.id ? newState.p1 : newState.p2;
         const manaRegen = getTotalStat(nextActive, StatType.MANA_REGEN);
         if (manaRegen > 0) {
-            // Mana regen can also theoretically overcharge if we uncap everything, but standard regen usually stops at max
-            // Keeping min(max) for regen makes sense, but the request said "recovery skills" have no limit.
-            // Let's keep passive regen capped at max for game balance, only active skills break limits.
             nextActive.currentMana = Math.min(getTotalStat(nextActive, StatType.MANA), nextActive.currentMana + (getTotalStat(nextActive, StatType.MANA) * manaRegen / 100));
         }
 
@@ -637,7 +631,7 @@ const App: React.FC = () => {
         const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
         const allSkills = [
             ...myEntity.config.skills,
-            { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill
+            { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] } as Skill
         ];
         
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -667,40 +661,37 @@ const App: React.FC = () => {
             return "【基础动作】造成等于当前攻击力的物理伤害。计算护甲穿透与吸血。无消耗。";
         }
 
-        if (skill.isPassive) {
-            description = "【被动】";
-            if (skill.conditions.length === 0) {
-                 description += "每回合结束时尝试触发。";
-            } else {
-                const conds = skill.conditions.map(c => {
-                    const target = c.sourceTarget === 'SELF' ? '自身' : '敌方';
-                    const varMap: Record<string, string> = {
-                        'HP': '生命', 'HP%': '生命%', 
-                        'HP_LOST': '已损生命', 'HP_LOST%': '已损生命%',
-                        'MANA': '法力', 'MANA%': '法力%', 
-                        'TURN': '回合'
-                    };
-                    const v = varMap[c.variable] || c.variable;
-                    return `${target}${v} ${c.operator} ${c.value}`;
-                }).join(' 且 ');
-                description += `当 [${conds}] 时触发。`;
+        const stats = entity ? entity.config.stats : myChar?.stats;
+        if (stats) {
+            const cost = calculateManaCost(skill, stats, entity);
+            const isDynamic = hasDynamicStats(skill);
+            let costText = `${cost}`;
+            if (!entity && isDynamic) {
+                    costText += " + 战时加成";
             }
-        } else {
-            const stats = entity ? entity.config.stats : myChar?.stats;
-            if (stats) {
-                const cost = calculateManaCost(skill, stats, entity);
-                const isDynamic = hasDynamicStats(skill);
-                let costText = `${cost}`;
-                if (!entity && isDynamic) {
-                     costText += " + 战时加成";
-                }
-                description = `【消耗 ${costText} MP】`;
-            }
+            description = skill.isPassive ? `【被动 | 估算消耗 ${costText} MP】` : `【主动 | 消耗 ${costText} MP】`;
         }
 
-        if (skill.effects.length === 0) return description + " (无效果)";
+        if (skill.logic.length === 0) return description + " (无效果)";
         
-        const effectsDesc = skill.effects.map(e => {
+        // Simplified description for the main battle view, detailing logic branches
+        const logicDesc = skill.logic.map((branch, i) => {
+            const cond = branch.condition;
+            const eff = branch.effect;
+            
+            let condText = "总是";
+            if (cond) {
+                const target = cond.sourceTarget === 'SELF' ? '自身' : '敌方';
+                const varMap: Record<string, string> = {
+                    'HP': '生命', 'HP%': '生命%', 
+                    'HP_LOST': '已损生命', 'HP_LOST%': '已损生命%',
+                    'MANA': '法力', 'MANA%': '法力%', 
+                    'TURN': '回合'
+                };
+                const v = varMap[cond.variable] || cond.variable;
+                condText = `若 ${target}${v} ${cond.operator} ${cond.value}`;
+            }
+
             const formatTarget = (t: string) => t === 'SELF' ? '自身' : '敌方';
             const actionMap: Record<string, string> = {
                 'DAMAGE_PHYSICAL': '物理伤害',
@@ -708,21 +699,20 @@ const App: React.FC = () => {
                 'INCREASE_STAT': '增加',
                 'DECREASE_STAT': '减少'
             };
-            const fa = e.formula.factorA;
-            const fb = e.formula.factorB;
-            // Translate operators for better readability
+            const fa = eff.formula.factorA;
+            const fb = eff.formula.factorB;
             const opMap: Record<string, string> = { '+':'+', '-':'-', '*':'x', '/':'÷' };
-            const op = opMap[e.formula.operator] || e.formula.operator;
+            const op = opMap[eff.formula.operator] || eff.formula.operator;
             
-            let actionText = actionMap[e.type] || e.type;
-            if (e.type === 'INCREASE_STAT' || e.type === 'DECREASE_STAT') {
-                actionText += e.targetStat;
+            let actionText = actionMap[eff.type] || eff.type;
+            if (eff.type === 'INCREASE_STAT' || eff.type === 'DECREASE_STAT') {
+                actionText += eff.targetStat;
             }
             
-            return `对${formatTarget(e.target)}${actionText} = ${formatTarget(fa.target)}的${fa.stat} ${op} ${formatTarget(fb.target)}的${fb.stat}`;
-        }).join(' | ');
+            return `[${i+1}] ${condText} -> 对${formatTarget(eff.target)}${actionText} (${fa.stat}${op}${fb.stat})`;
+        }).join('\n');
         
-        return description + " -> " + effectsDesc;
+        return description + "\n" + logicDesc;
     };
 
     const handleEntityClick = (id: string) => {
@@ -769,46 +759,48 @@ const App: React.FC = () => {
                                             </div>
                                             <div className="text-xs text-slate-500 font-mono">{calculateManaCost(skill, inspectedEntity.config.stats, inspectedEntity)} MP</div>
                                         </div>
-                                        <div className="text-xs text-slate-400 leading-relaxed">
-                                            {skill.isPassive ? (
-                                                <div className="space-y-1">
-                                                    <div className="text-blue-400 font-bold">触发条件:</div>
-                                                    {skill.conditions.map((c, i) => {
-                                                        const target = c.sourceTarget === 'SELF' ? '自身' : '敌方';
-                                                        const varMap: Record<string, string> = {
-                                                            'HP': '生命', 'HP%': '生命%', 
-                                                            'HP_LOST': '已损生命', 'HP_LOST%': '已损生命%',
-                                                            'MANA': '法力', 'MANA%': '法力%', 
-                                                            'TURN': '回合'
-                                                        };
-                                                        const v = varMap[c.variable] || c.variable;
-                                                        return <div key={i} className="pl-2">• {target}{v} {c.operator} {c.value}</div>
-                                                    })}
-                                                    <div className="text-green-400 font-bold mt-2">效果:</div>
-                                                    {skill.effects.map((e, i) => {
-                                                         const formatTarget = (t: string) => t === 'SELF' ? '自身' : '敌方';
-                                                         const actionMap: Record<string, string> = {
-                                                            'DAMAGE_PHYSICAL': '物理伤害',
-                                                            'DAMAGE_MAGIC': '魔法伤害',
-                                                            'INCREASE_STAT': '增加',
-                                                            'DECREASE_STAT': '减少'
-                                                        };
-                                                        const fa = e.formula.factorA;
-                                                        const fb = e.formula.factorB;
-                                                        const opMap: Record<string, string> = { '+':'+', '-':'-', '*':'x', '/':'÷' };
-                                                        const op = opMap[e.formula.operator] || e.formula.operator;
-                                                        
-                                                        let actionText = actionMap[e.type] || e.type;
-                                                        if (e.type === 'INCREASE_STAT' || e.type === 'DECREASE_STAT') {
-                                                            actionText += e.targetStat;
-                                                        }
-                                                        
-                                                        return <div key={i} className="pl-2">• 对{formatTarget(e.target)}{actionText} ({fa.stat} {op} {fb.stat})</div>
-                                                    })}
+                                        <div className="text-xs text-slate-400 leading-relaxed space-y-3">
+                                            {skill.logic.map((branch, i) => (
+                                                <div key={i} className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="text-[10px] text-slate-500 font-bold bg-slate-800 px-1 rounded">BLOCK {i+1}</span>
+                                                        <div className="text-blue-400 font-bold flex gap-1">
+                                                            IF 
+                                                            {branch.condition ? (
+                                                                <span className="text-slate-300">
+                                                                    {(branch.condition.sourceTarget === 'SELF' ? '自身' : '敌方') + branch.condition.variable} {branch.condition.operator} {branch.condition.value}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-500 italic">Always</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="pl-4 border-l border-slate-700">
+                                                        <div className="text-green-400 font-bold flex gap-1">
+                                                            THEN 
+                                                            <span className="text-slate-300">
+                                                                {(() => {
+                                                                    const eff = branch.effect;
+                                                                    const formatTarget = (t: string) => t === 'SELF' ? '自身' : '敌方';
+                                                                    const actionMap: Record<string, string> = {
+                                                                        'DAMAGE_PHYSICAL': '物理伤害',
+                                                                        'DAMAGE_MAGIC': '魔法伤害',
+                                                                        'INCREASE_STAT': '增加',
+                                                                        'DECREASE_STAT': '减少'
+                                                                    };
+                                                                    let actionText = actionMap[eff.type] || eff.type;
+                                                                    if (eff.type === 'INCREASE_STAT' || eff.type === 'DECREASE_STAT') {
+                                                                        actionText += eff.targetStat;
+                                                                    }
+                                                                    const op = eff.formula.operator === '*' ? 'x' : eff.formula.operator;
+                                                                    return `对${formatTarget(eff.target)}${actionText} (${eff.formula.factorA.stat} ${op} ${eff.formula.factorB.stat})`;
+                                                                })()}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            ) : (
-                                                getSkillDescription(skill, inspectedEntity)
-                                            )}
+                                            ))}
+                                            {skill.logic.length === 0 && <span className="italic opacity-50">无逻辑块</span>}
                                         </div>
                                     </div>
                                 ))}
@@ -1107,7 +1099,7 @@ const App: React.FC = () => {
                                                 const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
                                                 const allSkills = [
                                                     ...myEntity.config.skills,
-                                                    { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill
+                                                    { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] } as Skill
                                                 ];
                                                 
                                                 return allSkills.map((skill, idx) => {
@@ -1177,18 +1169,18 @@ const App: React.FC = () => {
                                                 </>
                                             )}
 
-                                            <div className="mt-2">
+                                            <div className="mt-2 w-full">
                                                 {(() => {
                                                     const myEntity = battleState.p1.id === playerId ? battleState.p1 : battleState.p2;
-                                                    const allSkills = [...myEntity.config.skills, { id: 'basic_attack', name: '普通攻击', isPassive: false, conditions: [], effects: [] } as Skill];
+                                                    const allSkills = [...myEntity.config.skills, { id: 'basic_attack', name: '普通攻击', isPassive: false, logic: [] } as Skill];
                                                     const selectedSkill = allSkills[selectedSkillIndex % allSkills.length];
                                                     
                                                     return (
                                                         <>
                                                             <h4 className="text-xl font-bold text-white mb-2">{selectedSkill.name}</h4>
-                                                            <p className="text-slate-400 font-mono text-sm leading-relaxed max-w-lg">
+                                                            <div className="text-slate-400 font-mono text-sm leading-relaxed max-w-lg mx-auto whitespace-pre-wrap">
                                                                 {getSkillDescription(selectedSkill, myEntity)}
-                                                            </p>
+                                                            </div>
                                                         </>
                                                     )
                                                 })()}

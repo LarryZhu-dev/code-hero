@@ -1,5 +1,6 @@
 
-import { BattleEntity, Effect, Formula, Skill, StatType, CharacterStats, ONLY_PERCENT_STATS, BattleEvent } from '../types';
+
+import { BattleEntity, Effect, Formula, Skill, StatType, CharacterStats, ONLY_PERCENT_STATS, BattleEvent, Condition } from '../types';
 
 export const getTotalStat = (entity: BattleEntity, stat: StatType): number => {
     // Dynamic Stats Calculation
@@ -58,25 +59,26 @@ export const evaluateFormula = (formula: Formula, self: BattleEntity, enemy: Bat
 export const hasDynamicStats = (skill: Skill): boolean => {
     const dynamicVars: StatType[] = [StatType.CURRENT_HP, StatType.CURRENT_HP_PERC, StatType.HP_LOST, StatType.HP_LOST_PERC, StatType.MANA, StatType.CURRENT_MANA];
     
-    // Check conditions
-    const condHas = skill.conditions.some(c => ['HP', 'HP%', 'HP_LOST', 'HP_LOST%', 'MANA', 'MANA%'].includes(c.variable));
-    
-    // Check formulas
-    const effectHas = skill.effects.some(e => 
-         dynamicVars.includes(e.formula.factorA.stat) || 
-         dynamicVars.includes(e.formula.factorB.stat)
-    );
-    
-    return condHas || effectHas;
+    // Check all branches
+    return skill.logic.some(branch => {
+        // Check condition
+        const condHas = branch.condition ? ['HP', 'HP%', 'HP_LOST', 'HP_LOST%', 'MANA', 'MANA%'].includes(branch.condition.variable) : false;
+        
+        // Check effect
+        const effectHas = 
+             dynamicVars.includes(branch.effect.formula.factorA.stat) || 
+             dynamicVars.includes(branch.effect.formula.factorB.stat);
+             
+        return condHas || effectHas;
+    });
 };
 
 /**
  * Simulation-based Mana Calculation.
- * If entity is provided, it uses the entity's current state for calculation.
- * If not (e.g. in Editor), it uses a dummy entity with 0 current HP/Mana to calculate the 'Base' cost.
+ * Sums up the potential cost/value of ALL logic blocks.
  */
 export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: BattleEntity): number => {
-    if (skill.effects.length === 0) return 0;
+    if (skill.logic.length === 0) return 0;
 
     const dummyEntity: BattleEntity = entity || {
         id: 'sim',
@@ -88,7 +90,8 @@ export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: 
 
     let totalEstimatedValue = 0;
 
-    skill.effects.forEach(effect => {
+    skill.logic.forEach(branch => {
+        const effect = branch.effect;
         let val = evaluateFormula(effect.formula, dummyEntity, dummyEntity);
         val = Math.abs(val);
 
@@ -98,11 +101,11 @@ export const calculateManaCost = (skill: Skill, stats: CharacterStats, entity?: 
              }
         }
         
-        // Legacy support check if old types exist in saved data
-        if ((effect.type as any) === 'HEAL' || (effect.type as any) === 'GAIN_MANA') {
-            val *= 1.5; 
+        // Cost reducer if condition is present (conditional power is cheaper than reliable power)
+        if (branch.condition) {
+            val *= 0.8;
         }
-        
+
         totalEstimatedValue += val;
     });
 
@@ -165,24 +168,76 @@ export const processBasicAttack = (caster: BattleEntity, target: BattleEntity, p
         type: 'TEXT',
         text: `${caster.config.name} 对 ${target.config.name} 造成 ${damage} 点物理伤害`
     });
-    
-    // Removed Cap for basic attack lifesteal as well to be consistent
-    // caster.currentHp = Math.min(caster.currentHp, maxHp);
 };
 
-// Returns TRUE if skill was cast (mana consumed)
-export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleEntity, pushEvent: (evt: BattleEvent) => void): boolean => {
+export const evaluateCondition = (cond: Condition | undefined, self: BattleEntity, enemy: BattleEntity, turn: number): boolean => {
+    if (!cond) return true; // Always true if no condition
+
+    const entity = cond.sourceTarget === 'SELF' ? self : enemy;
+    let val = 0;
+    const maxHp = getTotalStat(entity, StatType.HP);
+    const maxMana = getTotalStat(entity, StatType.MANA);
+
+    switch (cond.variable) {
+        case 'HP': val = entity.currentHp; break;
+        case 'HP%': val = (entity.currentHp / (maxHp || 1)) * 100; break;
+        case 'HP_LOST': val = Math.max(0, maxHp - entity.currentHp); break;
+        case 'HP_LOST%': val = (Math.max(0, maxHp - entity.currentHp) / (maxHp || 1)) * 100; break;
+        case 'MANA': val = entity.currentMana; break;
+        case 'MANA%': val = (entity.currentMana / (maxMana || 1)) * 100; break;
+        case 'TURN': val = turn; break;
+        default: val = 0;
+    }
+
+    switch (cond.operator) {
+        case '>': return val > cond.value;
+        case '<': return val < cond.value;
+        case '==': return val === cond.value;
+        case '>=': return val >= cond.value;
+        case '<=': return val <= cond.value;
+        case '!=': return val !== cond.value;
+        default: return false;
+    }
+};
+
+/**
+ * Returns TRUE if skill was cast/triggered (mana consumed).
+ * isPassiveTrigger: If true, checks conditions FIRST. If no conditions met, returns false without cost.
+ */
+export const processSkill = (
+    skill: Skill, 
+    caster: BattleEntity, 
+    target: BattleEntity, 
+    pushEvent: (evt: BattleEvent) => void, 
+    turn: number,
+    isPassiveTrigger: boolean = false
+): boolean => {
     // Calculate cost based on CURRENT runtime stats
     const manaCost = calculateManaCost(skill, caster.config.stats, caster);
     
+    // 1. If Passive, identify if any branches trigger. If none, do nothing.
+    // 2. If Active, we assume intent to cast, so we proceed to cost check (unless we want 'fizzle' logic).
+    //    For now, active skills execute whatever branches pass (usually 'Always').
+    
+    const triggeredBranches = skill.logic.filter(branch => 
+        evaluateCondition(branch.condition, caster, target, turn)
+    );
+
+    if (isPassiveTrigger && triggeredBranches.length === 0) {
+        return false;
+    }
+
+    // Mana Check
     if (caster.currentMana < manaCost) {
-        if (!skill.isPassive) {
+        if (!isPassiveTrigger && !skill.isPassive) {
             pushEvent({ type: 'TEXT', text: `${caster.config.name} 法力不足!` });
         }
         return false;
     }
 
+    // Deduct Cost
     caster.currentMana = Math.max(0, caster.currentMana - manaCost);
+    
     if (!skill.isPassive) {
         pushEvent({ 
             type: 'SKILL_EFFECT', 
@@ -193,7 +248,9 @@ export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleE
         pushEvent({ type: 'MANA', targetId: caster.id, value: -manaCost });
     }
 
-    skill.effects.forEach(effect => {
+    // Execute Logic
+    triggeredBranches.forEach(branch => {
+        const effect = branch.effect;
         const effectTarget = effect.target === 'SELF' ? caster : target;
         
         const rawValue = evaluateFormula(effect.formula, caster, target);
@@ -289,54 +346,7 @@ export const processSkill = (skill: Skill, caster: BattleEntity, target: BattleE
                 }
             }
         }
-        
-        // --- Legacy Support for old saved characters ---
-        else if ((effect.type as any) === 'HEAL') {
-             const val = Math.floor(finalValue);
-             effectTarget.currentHp += val;
-             pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
-        } else if ((effect.type as any) === 'GAIN_MANA') {
-             const val = Math.floor(finalValue);
-             effectTarget.currentMana += val;
-             pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
-        }
     });
 
-    // Uncapped Stats - We no longer clamp to Max HP/Mana after skill execution
-    // Allowing for overheal / overmana mechanics
-    
     return true;
-};
-
-export const checkConditions = (skill: Skill, self: BattleEntity, enemy: BattleEntity, turn: number): boolean => {
-    if (!skill.isPassive) return false;
-    if (skill.conditions.length === 0) return true; 
-
-    return skill.conditions.every(cond => {
-        const entity = cond.sourceTarget === 'SELF' ? self : enemy;
-        let val = 0;
-        const maxHp = getTotalStat(entity, StatType.HP);
-        const maxMana = getTotalStat(entity, StatType.MANA);
-
-        switch (cond.variable) {
-            case 'HP': val = entity.currentHp; break;
-            case 'HP%': val = (entity.currentHp / (maxHp || 1)) * 100; break;
-            case 'HP_LOST': val = Math.max(0, maxHp - entity.currentHp); break;
-            case 'HP_LOST%': val = (Math.max(0, maxHp - entity.currentHp) / (maxHp || 1)) * 100; break;
-            case 'MANA': val = entity.currentMana; break;
-            case 'MANA%': val = (entity.currentMana / (maxMana || 1)) * 100; break;
-            case 'TURN': val = turn; break;
-            default: val = 0;
-        }
-
-        switch (cond.operator) {
-            case '>': return val > cond.value;
-            case '<': return val < cond.value;
-            case '==': return val === cond.value;
-            case '>=': return val >= cond.value;
-            case '<=': return val <= cond.value;
-            case '!=': return val !== cond.value;
-            default: return false;
-        }
-    });
 };
