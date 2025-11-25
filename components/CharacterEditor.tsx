@@ -3,6 +3,7 @@ import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType
 import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowLeft, Palette, Eye, Shirt, Sword } from 'lucide-react';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
 import { classifyHero, getDefaultAppearance, getRoleDisplayName, drawBody, drawWeapon } from '../utils/heroSystem';
+import { createProjectile, createAuraEffect, createParticles } from '../utils/visualEffects';
 import * as PIXI from 'pixi.js';
 
 interface Props {
@@ -152,8 +153,13 @@ const VisualPreview: React.FC<{ type: EffectType, visual: EffectVisual }> = ({ t
         const init = async () => {
              if (!containerRef.current || appRef.current) return;
 
+             // Ensure cleanup of previous content if any
+             if (containerRef.current.children.length > 0) {
+                 containerRef.current.innerHTML = '';
+             }
+
              const app = new PIXI.Application();
-             await app.init({ width: 240, height: 120, backgroundColor: 0x0f172a, antialias: true });
+             await app.init({ width: 300, height: 160, backgroundColor: 0x0f172a, antialias: true });
              
              if (isCancelled) {
                  app.destroy();
@@ -163,39 +169,138 @@ const VisualPreview: React.FC<{ type: EffectType, visual: EffectVisual }> = ({ t
              if (containerRef.current) containerRef.current.appendChild(app.canvas);
              appRef.current = app;
 
-             const particles = new PIXI.Container();
-             app.stage.addChild(particles);
-             let frame = 0;
-             app.ticker.add(() => {
-                 frame++;
-                 const { type: t, visual: v } = propsRef.current;
+             // --- SCENE SETUP ---
+             
+             // Floor
+             const floor = new PIXI.Graphics();
+             floor.moveTo(0, 130).lineTo(300, 130).stroke({ width: 2, color: 0x334155 });
+             app.stage.addChild(floor);
+
+             // Caster (Left)
+             const casterContainer = new PIXI.Container();
+             casterContainer.x = 60; casterContainer.y = 120;
+             app.stage.addChild(casterContainer);
+             
+             // Shadow
+             const shadow1 = new PIXI.Graphics();
+             shadow1.ellipse(0, 0, 20, 6).fill({ color: 0x000000, alpha: 0.3 });
+             shadow1.y = 5;
+             casterContainer.addChild(shadow1);
+
+             const casterBody = new PIXI.Container();
+             casterBody.scale.x = 1; // Facing right
+             casterContainer.addChild(casterBody);
+
+             const casterG = new PIXI.Graphics();
+             drawBody(casterG, { head: 'KNIGHT', body: 'PLATE', weapon: 'SWORD', themeColor: '#3b82f6' });
+             casterBody.addChild(casterG);
+
+             const casterHand = new PIXI.Container();
+             casterHand.x = 2 * 4; casterHand.y = -9 * 4; 
+             casterBody.addChild(casterHand);
+             const casterWeapon = new PIXI.Graphics();
+             drawWeapon(casterWeapon, { head: 'KNIGHT', body: 'PLATE', weapon: 'SWORD', themeColor: '#3b82f6' });
+             casterWeapon.rotation = 0.5;
+             casterHand.addChild(casterWeapon);
+
+
+             // Target (Right)
+             const targetContainer = new PIXI.Container();
+             targetContainer.x = 240; targetContainer.y = 120;
+             app.stage.addChild(targetContainer);
+
+             const shadow2 = new PIXI.Graphics();
+             shadow2.ellipse(0, 0, 20, 6).fill({ color: 0x000000, alpha: 0.3 });
+             shadow2.y = 5;
+             targetContainer.addChild(shadow2);
+
+             const targetBody = new PIXI.Container();
+             targetBody.scale.x = -1; // Facing left
+             targetContainer.addChild(targetBody);
+
+             const targetG = new PIXI.Graphics();
+             drawBody(targetG, { head: 'BALD', body: 'VEST', weapon: 'DAGGER', themeColor: '#ef4444' });
+             targetBody.addChild(targetG);
+
+             // Loop Animation
+             const runEffect = () => {
+                 if (!appRef.current || !appRef.current.stage) return;
                  
-                 if (frame % 60 === 0) {
-                     particles.removeChildren(); // Simple loop, clear old
-                     const p = new PIXI.Graphics();
-                     const hex = parseInt(v.color.replace('#', '0x'));
+                 const currentType = propsRef.current.type;
+                 const currentVisual = propsRef.current.visual;
+                 const color = parseInt(currentVisual.color.replace('#', '0x'));
+                 const isDamage = currentType.includes('DAMAGE');
+
+                 // Animate Caster
+                 let frame = 0;
+                 const animateCaster = () => {
+                     frame++;
+                     if (frame < 10) casterHand.rotation -= 0.1;
+                     else if (frame < 20) casterHand.rotation += 0.1;
+                     else app.ticker.remove(animateCaster);
+                 };
+                 app.ticker.add(animateCaster);
+
+                 if (isDamage) {
+                    const trajectory = currentType === 'DAMAGE_MAGIC' ? 'LINEAR' : 'PARABOLIC';
+                    createProjectile(
+                        app,
+                        casterContainer.x + 20,
+                        casterContainer.y - 40,
+                        targetContainer.x,
+                        targetContainer.y - 30,
+                        color,
+                        100,
+                        trajectory,
+                        currentVisual.shape || 'CIRCLE',
+                        () => {
+                            // On Hit
+                            createParticles(app, targetContainer.x, targetContainer.y - 30, color, 8, 'EXPLOSION');
+                            
+                            // Hit Flash
+                            const flash = new PIXI.Graphics();
+                            flash.circle(0,0, 30).fill({color: 0xffffff, alpha: 0.5});
+                            flash.x = targetContainer.x;
+                            flash.y = targetContainer.y - 30;
+                            app.stage.addChild(flash);
+                            let fa = 0.5;
+                            const fade = () => {
+                                if (!flash.parent) return;
+                                fa -= 0.1;
+                                flash.alpha = fa;
+                                if(fa <= 0) { flash.destroy(); app.ticker.remove(fade); }
+                            };
+                            app.ticker.add(fade);
+                            
+                            // Shake target
+                            let shake = 0;
+                            const shakeTarget = () => {
+                                shake++;
+                                targetBody.x = Math.sin(shake * 2) * 4;
+                                if(shake > 10) { targetBody.x = 0; app.ticker.remove(shakeTarget); }
+                            };
+                            app.ticker.add(shakeTarget);
+                        }
+                    );
+                 } else {
+                     // Heal / Buff
+                     // Apply on Target (or Caster, but Target easier to see flow)
+                     const targetX = currentType.includes('DECREASE') ? targetContainer.x : casterContainer.x;
+                     const targetY = currentType.includes('DECREASE') ? targetContainer.y : casterContainer.y;
                      
-                     if (t.includes('DAMAGE')) {
-                        if (v.shape === 'SQUARE') p.rect(0,0,10,10).fill(hex);
-                        else p.circle(0,0,5).fill(hex);
-                        p.x = 20; p.y = 60;
-                        (p as any).vx = 5;
-                     } else {
-                        p.circle(0,0,3).fill(hex);
-                        p.x = 120; p.y = 60;
-                        (p as any).vy = -1;
-                     }
-                     particles.addChild(p);
+                     // Show effect on the target
+                     createAuraEffect(app, targetX, targetY, color, currentType.includes('DECREASE') ? 'DOWN' : 'UP');
                  }
-                 
-                 particles.children.forEach((p: any) => {
-                     if (p.vx) p.x += p.vx;
-                     if (p.vy) p.y += p.vy;
-                 });
-             });
+             };
+
+             runEffect();
+             const timer = setInterval(runEffect, 2500);
+
+             return () => clearInterval(timer);
         };
         init();
-        return () => { 
+
+        return () => {
             isCancelled = true;
             if (appRef.current) {
                 appRef.current.destroy({ removeView: true });
@@ -204,7 +309,7 @@ const VisualPreview: React.FC<{ type: EffectType, visual: EffectVisual }> = ({ t
         };
     }, []);
 
-    return <div ref={containerRef} className="w-[240px] h-[120px] rounded border border-slate-700 overflow-hidden bg-slate-950 shrink-0 mx-auto"></div>;
+    return <div ref={containerRef} className="w-[300px] h-[160px] rounded border border-slate-700 overflow-hidden bg-slate-950 shrink-0 mx-auto shadow-inner"></div>;
 };
 
 const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
