@@ -353,7 +353,8 @@ export const processSkill = (
                 sourceId: caster.id,
                 targetId: effectTarget.id,
                 projectileType: 'PHYSICAL',
-                value: damage
+                value: damage,
+                visual: effect.visual // Pass visual config
             });
 
             effectTarget.currentHp -= damage;
@@ -389,7 +390,8 @@ export const processSkill = (
                 sourceId: caster.id,
                 targetId: effectTarget.id,
                 projectileType: 'MAGIC',
-                value: damage
+                value: damage,
+                visual: effect.visual // Pass visual config
             });
 
             effectTarget.currentHp -= damage;
@@ -413,11 +415,11 @@ export const processSkill = (
                         if (effectTarget.currentHp > effectTarget.maxHp) {
                             effectTarget.maxHp = effectTarget.currentHp;
                         }
-                        pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val });
+                        pushEvent({ type: 'HEAL', targetId: effectTarget.id, value: val, visual: effect.visual });
                     } else if (val < 0) {
                         const dmg = Math.abs(val);
                         effectTarget.currentHp -= dmg;
-                        pushEvent({ type: 'DAMAGE', targetId: effectTarget.id, value: dmg, text: '流失', color: '#b91c1c' }); 
+                        pushEvent({ type: 'DAMAGE', targetId: effectTarget.id, value: dmg, text: '流失', color: '#b91c1c', visual: effect.visual }); 
                     }
                 } else if (stat === StatType.CURRENT_MANA) {
                      effectTarget.currentMana += val;
@@ -426,7 +428,7 @@ export const processSkill = (
                          effectTarget.maxMana = effectTarget.currentMana;
                      }
                      if (val !== 0) {
-                         pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa' });
+                         pushEvent({ type: 'MANA', targetId: effectTarget.id, value: val, color: '#60a5fa', visual: effect.visual });
                      }
                 } else {
                     // Buff/Debuff Base Stat
@@ -434,9 +436,6 @@ export const processSkill = (
                         // Directly modifying Max HP
                         effectTarget.maxHp += val;
                         if (effectTarget.maxHp < 1) effectTarget.maxHp = 1;
-                        // If current HP > new Max HP (due to decrease), clamp it? 
-                        // Or logic: "If max HP decreases, current HP stays unless it's > max".
-                        // Let's ensure currentHp <= maxHp if maxHp was reduced below it.
                         if (effectTarget.currentHp > effectTarget.maxHp) {
                             effectTarget.currentHp = effectTarget.maxHp;
                         }
@@ -446,7 +445,8 @@ export const processSkill = (
                             targetId: effectTarget.id,
                             stat: stat,
                             value: val,
-                            text: `${sign}${val} MaxHP`
+                            text: `${sign}${val} MaxHP`,
+                            visual: effect.visual
                         });
                     } else if (stat === StatType.MANA) {
                         effectTarget.maxMana += val;
@@ -460,7 +460,8 @@ export const processSkill = (
                             targetId: effectTarget.id,
                             stat: stat,
                             value: val,
-                            text: `${sign}${val} MaxMP`
+                            text: `${sign}${val} MaxMP`,
+                            visual: effect.visual
                         });
                     } else if (typeof effectTarget.config.stats.base[stat] === 'number') {
                         // Legacy handling for other stats (AD, AP...)
@@ -472,7 +473,8 @@ export const processSkill = (
                             targetId: effectTarget.id,
                             stat: stat,
                             value: val,
-                            text: `${sign}${val} ${stat}`
+                            text: `${sign}${val} ${stat}`,
+                            visual: effect.visual
                         });
                     }
                 }

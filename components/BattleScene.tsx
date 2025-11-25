@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
-import { BattleState, StatType, BattleEvent } from '../types';
+import { BattleState, StatType, BattleEvent, VisualShape } from '../types';
 import { getTotalStat } from '../utils/gameEngine';
 
 interface Props {
@@ -440,6 +440,7 @@ const createProjectile = (
     color: number, 
     value: number, 
     trajectory: 'LINEAR' | 'PARABOLIC',
+    shape: VisualShape = 'CIRCLE',
     onHit: () => void
 ) => {
     const g = new PIXI.Graphics();
@@ -448,15 +449,28 @@ const createProjectile = (
     // Size scaling: Base 8, grows with damage
     const size = Math.min(30, 8 + Math.log(Math.max(1, value)) * 2);
     
-    // Draw projectile
-    g.circle(0, 0, size).fill(color);
-    // Glow
-    g.circle(0, 0, size * 1.5).fill({ color: color, alpha: 0.3 });
+    // Draw projectile based on shape
+    if (shape === 'SQUARE') {
+        g.rect(-size, -size, size * 2, size * 2).fill(color);
+        g.rect(-size * 1.5, -size * 1.5, size * 3, size * 3).fill({ color: color, alpha: 0.3 });
+    } else if (shape === 'STAR') {
+        g.star(0, 0, 5, size).fill(color);
+        g.star(0, 0, 5, size * 1.5).fill({ color: color, alpha: 0.3 });
+    } else if (shape === 'BEAM') {
+        g.rect(-size * 2, -size/2, size * 4, size).fill(color);
+        g.rect(-size * 2.5, -size, size * 5, size * 2).fill({ color: color, alpha: 0.3 });
+    } else if (shape === 'ORB') {
+        g.circle(0, 0, size).fill(color);
+        g.circle(0, 0, size * 1.5).stroke({ width: 2, color: color });
+    } else {
+        // Circle default
+        g.circle(0, 0, size).fill(color);
+        g.circle(0, 0, size * 1.5).fill({ color: color, alpha: 0.3 });
+    }
 
     // If linear magic, add a tail
     if (trajectory === 'LINEAR') {
         g.circle(-size, 0, size * 0.8).fill({ color: color, alpha: 0.6 });
-        g.circle(-size * 2, 0, size * 0.5).fill({ color: color, alpha: 0.3 });
     }
 
     g.x = startX;
@@ -481,15 +495,24 @@ const createProjectile = (
         if (trajectory === 'LINEAR') {
              g.x = startX + dx * ratio;
              g.y = startY + dy * ratio;
+             // Rotate to face target if beam or square
+             if (shape === 'BEAM' || shape === 'SQUARE') {
+                 g.rotation = Math.atan2(dy, dx);
+             } else {
+                 g.rotation += 0.2;
+             }
         } else {
              g.x = startX + dx * ratio;
              g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 50; // Arc
+             g.rotation += 0.2;
         }
 
         // Create trail dot
         if (progress % 2 === 0) {
             const t = new PIXI.Graphics();
-            t.circle(0, 0, size * 0.6).fill({ color: color, alpha: 0.5 });
+            if (shape === 'SQUARE') t.rect(-size/2, -size/2, size, size).fill({ color: color, alpha: 0.5 });
+            else t.circle(0, 0, size * 0.6).fill({ color: color, alpha: 0.5 });
+            
             t.x = g.x;
             t.y = g.y;
             app.stage.addChild(t);
@@ -562,6 +585,55 @@ const createParticles = (
             }
         };
         requestAnimationFrame(animate);
+    }
+};
+
+const createAuraEffect = (
+    app: PIXI.Application,
+    x: number,
+    y: number,
+    color: number,
+    direction: 'UP' | 'DOWN'
+) => {
+    // Spawn multiple particles over time to create an "aura" feel
+    const particleCount = 20;
+    
+    for(let i = 0; i < particleCount; i++) {
+        setTimeout(() => {
+            if (!app.stage) return; // Safety check if destroyed
+            const p = new PIXI.Graphics();
+            
+            // Draw a soft glowing shape
+            p.circle(0,0, 4).fill({ color, alpha: 0.8 });
+            
+            // Random start position around the entity
+            const offsetX = (Math.random() - 0.5) * 40;
+            const startY = direction === 'UP' ? y : y - 80;
+            
+            p.x = x + offsetX;
+            p.y = startY;
+            app.stage.addChild(p);
+
+            const speed = (Math.random() * 2 + 1) * (direction === 'UP' ? -1 : 1);
+            let alpha = 1.0;
+
+            const animate = () => {
+                if (!p.parent) return;
+                p.y += speed;
+                p.y += Math.sin(p.x * 0.1) * 0.5; // Slight wobble
+                alpha -= 0.02;
+                p.alpha = alpha;
+                
+                if (alpha <= 0) {
+                    if (p.parent) app.stage.removeChild(p);
+                    p.destroy();
+                } else {
+                    requestAnimationFrame(animate);
+                }
+            };
+            requestAnimationFrame(animate);
+
+        }, i * 50); // Stagger spawn
     }
 };
 
@@ -810,7 +882,14 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 if (evt.type === 'PROJECTILE' && source && target) {
                     await new Promise<void>(resolve => {
                         const isMagic = evt.projectileType === 'MAGIC';
-                        const color = isMagic ? 0x3b82f6 : 0xef4444;
+                        
+                        // User customized visual
+                        const customColor = evt.visual?.color ? parseInt(evt.visual.color.replace('#', '0x')) : null;
+                        const customShape = evt.visual?.shape || 'CIRCLE';
+                        
+                        const defaultColor = isMagic ? 0x3b82f6 : 0xef4444;
+                        const color = customColor !== null ? customColor : defaultColor;
+                        
                         const value = evt.value || 100;
                         const trajectory = isMagic ? 'LINEAR' : 'PARABOLIC';
                         
@@ -823,6 +902,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                             color, 
                             value, 
                             trajectory,
+                            customShape,
                             resolve
                         );
                     });
@@ -890,8 +970,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 else if (evt.type === 'HEAL' && target) {
                     if (evt.value) target.targetHp += evt.value;
                     spawnText(`+${evt.value}`, target.container.x, target.container.y, '#4ade80');
-                    // Upward green particles
-                    createParticles(app, target.container.x, target.container.y, 0x4ade80, 8, 'UP');
+                    
+                    const customColor = evt.visual?.color ? parseInt(evt.visual.color.replace('#', '0x')) : 0x4ade80;
+                    createAuraEffect(app, target.container.x, target.container.y, customColor, 'UP');
                 }
                 else if (evt.type === 'MANA' && target) {
                      if (evt.value) {
@@ -906,7 +987,11 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     let colorHex = '#ffffff';
                     let particleColor = 0xffffff;
                     
-                    if (evt.stat) {
+                    // User Custom Color for this specific effect
+                    if (evt.visual?.color) {
+                        colorHex = evt.visual.color;
+                        particleColor = parseInt(colorHex.replace('#', '0x'));
+                    } else if (evt.stat) {
                         const c = STAT_COLORS[evt.stat] || 0xffffff;
                         particleColor = c;
                         colorHex = '#' + c.toString(16).padStart(6, '0');
@@ -914,11 +999,11 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     
                     spawnText(evt.text || 'STAT', target.container.x, target.container.y - 20, colorHex);
                     
-                    // Downward particles if decrease
+                    // Aura Effect (Up or Down based on +/-)
                     if (evt.value && evt.value < 0) {
-                        createParticles(app, target.container.x, target.container.y, particleColor, 5, 'DOWN');
+                        createAuraEffect(app, target.container.x, target.container.y, particleColor, 'DOWN');
                     } else {
-                        createParticles(app, target.container.x, target.container.y, particleColor, 5, 'UP');
+                        createAuraEffect(app, target.container.x, target.container.y, particleColor, 'UP');
                     }
                 }
             }

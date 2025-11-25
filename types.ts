@@ -92,11 +92,19 @@ export interface Formula {
     factorB: FormulaFactor;
 }
 
+export type VisualShape = 'CIRCLE' | 'SQUARE' | 'STAR' | 'BEAM' | 'ORB';
+
+export interface EffectVisual {
+    color: string; // Hex Code
+    shape?: VisualShape; // Only for Projectiles
+}
+
 export interface Effect {
     type: EffectType;
     target: TargetType;
     targetStat?: StatType; // Required for INCREASE_STAT / DECREASE_STAT
     formula: Formula; 
+    visual?: EffectVisual; // Custom visual config
 }
 
 export interface SkillLogic {
@@ -134,6 +142,7 @@ export interface BattleEvent {
     skillName?: string;
     projectileType?: 'PHYSICAL' | 'MAGIC';
     stat?: StatType;
+    visual?: EffectVisual; // Carried over from Effect
 }
 
 export interface BattleState {

@@ -1,9 +1,10 @@
 
 
-import React, { useState, useEffect } from 'react';
-import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, Condition } from '../types';
-import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight, ArrowLeft, GitBranch } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CharacterConfig, INITIAL_STATS, StatType, Skill, EffectType, TargetType, Operator, VariableSource, FormulaOp, Effect, ONLY_PERCENT_STATS, ONLY_BASE_STATS, CharacterStats, DYNAMIC_STATS, SkillLogic, Condition, EffectVisual, VisualShape } from '../types';
+import { Save, Download, Plus, Trash2, Cpu, Zap, Activity, ArrowRight, ArrowLeft, GitBranch, Palette, Eye } from 'lucide-react';
 import { calculateManaCost, hasDynamicStats } from '../utils/gameEngine';
+import * as PIXI from 'pixi.js';
 
 interface Props {
     onSave: (char: CharacterConfig) => void;
@@ -88,7 +89,8 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
                             factorA: { target: 'SELF', stat: StatType.AD },
                             operator: '*',
                             factorB: { target: 'SELF', stat: StatType.CRIT_RATE } 
-                        }
+                        },
+                        visual: { color: '#ef4444', shape: 'ORB' }
                     }
                 }]
             }]
@@ -292,9 +294,122 @@ const CharacterEditor: React.FC<Props> = ({ onSave, existing, onBack }) => {
     );
 };
 
+const VisualPreview: React.FC<{ type: EffectType, visual: EffectVisual }> = ({ type, visual }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const appRef = useRef<PIXI.Application | null>(null);
+    const particlesRef = useRef<PIXI.Graphics[]>([]);
+
+    useEffect(() => {
+        const init = async () => {
+             if (!containerRef.current) return;
+             
+             // Destroy old app if exists
+             if (appRef.current) {
+                 appRef.current.destroy({ removeView: true });
+             }
+
+             const app = new PIXI.Application();
+             await app.init({ width: 100, height: 100, backgroundColor: 0x0f172a, antialias: true });
+             if (containerRef.current) {
+                 containerRef.current.appendChild(app.canvas);
+             }
+             appRef.current = app;
+
+             // Dummy Character
+             const char = new PIXI.Graphics();
+             char.rect(-10, -20, 20, 40).fill(0x64748b);
+             char.position.set(50, 80);
+             app.stage.addChild(char);
+
+             let frame = 0;
+             const hexColor = parseInt(visual.color.replace('#', '0x'));
+
+             app.ticker.add(() => {
+                 frame++;
+                 
+                 if (type === 'INCREASE_STAT' || type === 'DECREASE_STAT') {
+                     // Aura Effect
+                     if (frame % 10 === 0) {
+                        const p = new PIXI.Graphics();
+                        p.rect(0, 0, 4, 4).fill(hexColor);
+                        const offset = (Math.random() - 0.5) * 20;
+                        p.x = 50 + offset;
+                        
+                        if (type === 'INCREASE_STAT') {
+                             p.y = 100; // Start bottom
+                             (p as any).vy = -2; // Move up
+                        } else {
+                             p.y = 50; // Start top
+                             (p as any).vy = 2; // Move down
+                        }
+                        
+                        app.stage.addChild(p);
+                        particlesRef.current.push(p);
+                     }
+
+                     for (let i = particlesRef.current.length - 1; i >= 0; i--) {
+                         const p = particlesRef.current[i];
+                         p.y += (p as any).vy;
+                         p.alpha -= 0.05;
+                         if (p.alpha <= 0) {
+                             app.stage.removeChild(p);
+                             p.destroy();
+                             particlesRef.current.splice(i, 1);
+                         }
+                     }
+                 } else {
+                     // Projectile Effect
+                     // Only spawn one periodically
+                     if (frame % 60 === 0) {
+                         const p = new PIXI.Graphics();
+                         if (visual.shape === 'SQUARE') p.rect(-6, -6, 12, 12).fill(hexColor);
+                         else if (visual.shape === 'STAR') p.star(0, 0, 5, 8).fill(hexColor);
+                         else if (visual.shape === 'BEAM') p.rect(-15, -4, 30, 8).fill(hexColor);
+                         else if (visual.shape === 'ORB') {
+                             p.circle(0, 0, 6).fill(hexColor);
+                             p.circle(0, 0, 9).stroke({ color: hexColor, alpha: 0.5, width: 2 });
+                         }
+                         else p.circle(0, 0, 6).fill(hexColor);
+                         
+                         p.x = 10;
+                         p.y = 50;
+                         app.stage.addChild(p);
+                         particlesRef.current.push(p);
+                     }
+                     
+                     for (let i = particlesRef.current.length - 1; i >= 0; i--) {
+                         const p = particlesRef.current[i];
+                         p.x += 2;
+                         p.rotation += 0.1;
+                         if (p.x > 110) {
+                             app.stage.removeChild(p);
+                             p.destroy();
+                             particlesRef.current.splice(i, 1);
+                         }
+                     }
+                 }
+             });
+        };
+
+        init();
+
+        return () => {
+            if (appRef.current) {
+                appRef.current.destroy({ removeView: true });
+                appRef.current = null;
+            }
+        };
+    }, [visual, type]);
+
+    return (
+        <div ref={containerRef} className="w-[100px] h-[100px] rounded border border-slate-700 overflow-hidden bg-slate-950 shrink-0"></div>
+    );
+};
+
 const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: Skill) => void, onDelete: () => void }> = ({ skill, stats, onChange, onDelete }) => {
     const [manaCost, setManaCost] = useState(0);
     const [isDynamic, setIsDynamic] = useState(false);
+    const [expandedVisual, setExpandedVisual] = useState<number | null>(null);
 
     // Recalculate mana cost when skill OR stats change.
     useEffect(() => {
@@ -315,7 +430,8 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                         factorA: { target: 'SELF', stat: StatType.AD },
                         operator: '*',
                         factorB: { target: 'SELF', stat: StatType.CRIT_RATE } 
-                    }
+                    },
+                    visual: { color: '#ef4444', shape: 'ORB' }
                 }
             }]
         });
@@ -334,7 +450,25 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
         if ((updates.type === 'INCREASE_STAT' || updates.type === 'DECREASE_STAT') && !branch.effect.targetStat && !updates.targetStat) {
             updates.targetStat = StatType.CURRENT_HP;
         }
-        updateBranch(branchIndex, { effect: { ...branch.effect, ...updates } });
+        
+        // Safety check for visual initialization
+        let newVisual = updates.visual || branch.effect.visual || { color: '#ffffff', shape: 'CIRCLE' };
+        
+        // Auto-set default visual for type change if not manually set before
+        if (updates.type && !updates.visual) {
+             if (updates.type === 'INCREASE_STAT') newVisual = { color: '#4ade80', shape: 'CIRCLE' };
+             else if (updates.type === 'DECREASE_STAT') newVisual = { color: '#ef4444', shape: 'CIRCLE' };
+             else if (updates.type === 'DAMAGE_MAGIC') newVisual = { color: '#a855f7', shape: 'ORB' };
+             else newVisual = { color: '#ef4444', shape: 'SQUARE' };
+        }
+
+        updateBranch(branchIndex, { effect: { ...branch.effect, ...updates, visual: newVisual } });
+    };
+
+    const updateVisual = (branchIndex: number, updates: Partial<EffectVisual>) => {
+        const branch = skill.logic[branchIndex];
+        const currentVisual = branch.effect.visual || { color: '#ffffff', shape: 'CIRCLE' };
+        updateBranch(branchIndex, { effect: { ...branch.effect, visual: { ...currentVisual, ...updates } } });
     };
 
     const toggleCondition = (branchIndex: number) => {
@@ -397,7 +531,11 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
             
             <div className="p-5 space-y-4 bg-slate-900/50">
                 {/* Logic Branches */}
-                {skill.logic.map((branch, i) => (
+                {skill.logic.map((branch, i) => {
+                    const visual = branch.effect.visual || { color: '#ffffff', shape: 'CIRCLE' };
+                    const isDamage = branch.effect.type.includes('DAMAGE');
+                    
+                    return (
                     <div key={i} className="relative bg-slate-950/80 rounded-xl border border-slate-800 shadow-sm overflow-hidden hover:border-slate-700 transition-all">
                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-yellow-500 to-green-500"></div>
                          
@@ -406,16 +544,24 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-2">
                                 <GitBranch size={12}/> Logic Block #{i + 1}
                             </span>
-                            <button 
-                                className="text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 transition-all"
-                                onClick={() => {
-                                    const nl = [...skill.logic];
-                                    nl.splice(i, 1);
-                                    onChange({...skill, logic: nl});
-                                }}
-                            >
-                                <Trash2 size={14}/>
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setExpandedVisual(expandedVisual === i ? null : i)}
+                                    className={`text-[10px] flex items-center gap-1 px-2 py-1 rounded transition-colors ${expandedVisual === i ? 'bg-blue-900 text-blue-300' : 'bg-slate-800 text-slate-500 hover:text-blue-300'}`}
+                                >
+                                    <Palette size={12}/> 特效配置
+                                </button>
+                                <button 
+                                    className="text-slate-600 hover:text-red-400 p-1 rounded hover:bg-red-950/30 transition-all"
+                                    onClick={() => {
+                                        const nl = [...skill.logic];
+                                        nl.splice(i, 1);
+                                        onChange({...skill, logic: nl});
+                                    }}
+                                >
+                                    <Trash2 size={14}/>
+                                </button>
+                            </div>
                          </div>
 
                          <div className="p-3 grid gap-3">
@@ -603,9 +749,60 @@ const SkillBlock: React.FC<{ skill: Skill, stats: CharacterStats, onChange: (s: 
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Visual Configuration Panel */}
+                            {expandedVisual === i && (
+                                <div className="mt-2 pl-8 flex gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <div className="flex-1 bg-slate-900 p-3 rounded border border-slate-700 flex flex-col gap-3">
+                                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                                            <span className="text-xs font-bold text-slate-400">视觉特效</span>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-3">
+                                            <label className="text-xs text-slate-500">颜色</label>
+                                            <input 
+                                                type="color" 
+                                                value={visual.color}
+                                                onChange={(e) => updateVisual(i, { color: e.target.value })}
+                                                className="w-16 h-6 rounded cursor-pointer border-none bg-transparent"
+                                            />
+                                            <span className="text-xs font-mono text-slate-500">{visual.color}</span>
+                                        </div>
+
+                                        {isDamage && (
+                                            <div className="flex items-center gap-3">
+                                                <label className="text-xs text-slate-500">形状</label>
+                                                <select 
+                                                    className={styles.variable}
+                                                    value={visual.shape}
+                                                    onChange={(e) => updateVisual(i, { shape: e.target.value as VisualShape })}
+                                                >
+                                                    <option value="CIRCLE">圆形</option>
+                                                    <option value="SQUARE">方块</option>
+                                                    <option value="STAR">星形</option>
+                                                    <option value="BEAM">光束</option>
+                                                    <option value="ORB">法球</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                        
+                                        {!isDamage && (
+                                            <div className="text-xs text-slate-600 italic mt-1">
+                                                {branch.effect.type === 'INCREASE_STAT' ? '向上流动的光环粒子' : '向下坠落的光环粒子'}
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {/* Live Preview */}
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-[10px] text-slate-500 text-center uppercase">Preview</span>
+                                        <VisualPreview type={branch.effect.type} visual={visual} />
+                                    </div>
+                                </div>
+                            )}
                          </div>
                     </div>
-                ))}
+                );})}
 
                 {skill.logic.length < 3 ? (
                     <button 
