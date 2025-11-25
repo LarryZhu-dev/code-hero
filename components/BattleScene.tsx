@@ -1,9 +1,10 @@
+
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent, VisualShape, AppearanceConfig } from '../types';
 import { getTotalStat } from '../utils/gameEngine';
 import { drawBody, drawWeapon, getDefaultAppearance, classifyHero } from '../utils/heroSystem';
-import { createProjectile, createParticles, createSlashEffect, createMagicEffect, createAuraEffect } from '../utils/visualEffects';
+import { createProjectile, createParticles, createSlashEffect, createMagicEffect, createAuraEffect, createStabEffect } from '../utils/visualEffects';
 
 interface Props {
     gameState: BattleState;
@@ -253,6 +254,7 @@ class PixelEntity {
     async animateAttack() {
         const startRot = this.handGroup.rotation;
         const wType = this.appearance.weapon;
+        const startX = this.handGroup.x;
         
         if (wType === 'STAFF') {
             for(let i=0; i<10; i++) {
@@ -272,14 +274,31 @@ class PixelEntity {
             await new Promise(r => setTimeout(r, 100));
             this.handGroup.x += 20; // Release
             await new Promise(r => setTimeout(r, 16));
+        } else if (wType === 'DAGGER' || wType === 'SPEAR') {
+            // Stab motion
+            for(let i=0; i<4; i++) {
+                this.handGroup.x -= 4; // Windup back
+                await new Promise(r => setTimeout(r, 16));
+            }
+            for(let i=0; i<4; i++) {
+                this.handGroup.x += 16; // Thrust forward
+                await new Promise(r => setTimeout(r, 16));
+            }
+            await new Promise(r => setTimeout(r, 100));
+            // Return
+            const dist = this.handGroup.x - startX;
+            for(let i=0; i<10; i++) {
+                this.handGroup.x -= dist/10;
+                await new Promise(r => setTimeout(r, 16));
+            }
         } else {
-            // Melee Swing
+            // Melee Swing (Sword, Axe, Hammer)
             for(let i=0; i<5; i++) {
-                this.handGroup.rotation -= 0.2;
+                this.handGroup.rotation -= 0.4; // Windup up
                 await new Promise(r => setTimeout(r, 16));
             }
             for(let i=0; i<5; i++) {
-                this.handGroup.rotation += 0.5;
+                this.handGroup.rotation += 0.8; // Swing down
                 await new Promise(r => setTimeout(r, 16));
             }
              for(let i=0; i<10; i++) {
@@ -287,8 +306,9 @@ class PixelEntity {
                 await new Promise(r => setTimeout(r, 16));
             }
         }
+        
         this.handGroup.rotation = startRot;
-        if (wType === 'BOW') this.handGroup.x = -2 * 4; // Reset
+        this.handGroup.x = startX;
     }
 
     async animateCast() {
@@ -572,20 +592,59 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 await new Promise(r => setTimeout(r, pause));
 
                 if (evt.type === 'ATTACK_MOVE' && source && target) {
-                    const startX = source.container.x;
-                    const endX = target.container.x > startX ? target.container.x - 80 : target.container.x + 80;
-                    
-                    for (let i = 0; i < 8; i++) {
-                        source.container.x += (endX - startX) / 8;
-                        await new Promise(r => setTimeout(r, 16));
-                    }
-                    
-                    await source.animateAttack();
+                    const wType = source.appearance.weapon;
+                    const isRanged = wType === 'BOW' || wType === 'STAFF';
 
-                    createSlashEffect(app, target.container.x, target.container.y);
-                    
-                    await new Promise(r => setTimeout(r, 100));
-                    source.container.x = startX;
+                    if (isRanged) {
+                        // Ranged basic attack
+                        const animPromise = source.animateAttack();
+                        await new Promise(r => setTimeout(r, 200));
+                        
+                        if (wType === 'BOW') {
+                             await new Promise<void>(resolve => {
+                                createProjectile(app, source.container.x, source.container.y - 40, target.container.x, target.container.y - 30, 0xcccccc, 100, 'LINEAR', 'ARROW', resolve);
+                            });
+                        } else {
+                             await new Promise<void>(resolve => {
+                                createProjectile(app, source.container.x, source.container.y - 40, target.container.x, target.container.y - 30, 0xa855f7, 100, 'LINEAR', 'ORB', resolve);
+                            });
+                        }
+                        await animPromise;
+                    } else {
+                        // Melee basic attack
+                        const startX = source.container.x;
+                        const endX = target.container.x > startX ? target.container.x - 60 : target.container.x + 60;
+                        
+                        // Dash
+                        for (let i = 0; i < 6; i++) {
+                            source.container.x += (endX - startX) / 6;
+                            await new Promise(r => setTimeout(r, 16));
+                        }
+                        
+                        // Attack Animation
+                        const attackPromise = source.animateAttack();
+                        await new Promise(r => setTimeout(r, 150)); // Sync hit with swing/stab
+                        
+                        // Hit Effect based on weapon
+                        if (wType === 'DAGGER' || wType === 'SPEAR') {
+                            const direction = source.isFacingLeft ? -1 : 1;
+                            createStabEffect(app, target.container.x, target.container.y, 0xffffff, direction);
+                        } else {
+                            // Sword, Axe, Hammer
+                            const scaleX = source.isFacingLeft ? -1 : 1;
+                            createSlashEffect(app, target.container.x, target.container.y, 0xffffff, scaleX);
+                        }
+
+                        await attackPromise;
+                        
+                        // Return
+                        await new Promise(r => setTimeout(r, 100));
+                        for (let i = 0; i < 8; i++) {
+                            source.container.x += (startX - source.container.x) * 0.25;
+                            await new Promise(r => setTimeout(r, 16));
+                        }
+                        source.container.x = startX;
+                    }
                 } 
                 else if (evt.type === 'SKILL_EFFECT' && source) {
                     spawnText(evt.skillName || 'CAST', source.container.x, source.container.y - 40, '#fbbf24');
@@ -620,7 +679,7 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                             await animPromise;
 
                         } else {
-                            // Melee Thrust
+                            // Melee Thrust / Skill Attack
                             if (target) {
                                 const startX = source.container.x;
                                 const endX = target.container.x > startX ? target.container.x - 60 : target.container.x + 60;
@@ -634,7 +693,16 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                                 // Wait for hit frame
                                 await new Promise(r => setTimeout(r, 150));
                                 
-                                createSlashEffect(app, target.container.x, target.container.y);
+                                const effectColor = evt.visual?.color ? parseInt(evt.visual.color.replace('#', '0x')) : 0xffffff;
+
+                                if (wType === 'DAGGER' || wType === 'SPEAR') {
+                                    const direction = source.isFacingLeft ? -1 : 1;
+                                    createStabEffect(app, target.container.x, target.container.y, effectColor, direction);
+                                } else {
+                                    const scaleX = source.isFacingLeft ? -1 : 1;
+                                    createSlashEffect(app, target.container.x, target.container.y, effectColor, scaleX);
+                                }
+                                
                                 await attackPromise;
                                 
                                 // Smooth Return

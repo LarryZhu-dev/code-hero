@@ -1,3 +1,4 @@
+
 import * as PIXI from 'pixi.js';
 import { VisualShape } from '../types';
 
@@ -48,25 +49,74 @@ export const createParticles = (
     }
 };
 
-export const createSlashEffect = (app: PIXI.Application, x: number, y: number) => {
+// Enhanced Sword Chi / Slash Effect
+export const createSlashEffect = (app: PIXI.Application, x: number, y: number, color: number = 0xffffff, scaleX: number = 1) => {
+    const container = new PIXI.Container();
+    container.position.set(x, y - 30);
+    container.scale.x = scaleX; // Flip based on attacker direction if needed
+    app.stage.addChild(container);
+
     const g = new PIXI.Graphics();
-    g.position.set(x, y - 40);
-    g.scale.set(1, 0); 
+    container.addChild(g);
+
+    // Draw a crescent moon / sword wave shape
+    g.moveTo(0, -40);
+    g.bezierCurveTo(30, -20, 30, 20, 0, 40); // Outer curve
+    g.bezierCurveTo(10, 20, 10, -20, 0, -40); // Inner curve
+    g.fill({ color: color, alpha: 0.9 });
     
-    g.arc(0, 0, 40, Math.PI * 0.8, Math.PI * 2.2);
-    g.stroke({ width: 8, color: 0xffffff });
-    
+    // Outer glow
+    g.stroke({ width: 4, color: color, alpha: 0.4 });
+
+    let frame = 0;
+    const animate = () => {
+        if (!container.parent) return;
+        frame++;
+        
+        // Expand outward
+        container.scale.x = scaleX * (1 + frame * 0.1);
+        container.scale.y = 1 + frame * 0.05;
+        container.alpha -= 0.08;
+        container.x += 2 * scaleX; // Move forward slightly
+
+        if (container.alpha <= 0) {
+            if (container.parent) app.stage.removeChild(container);
+            container.destroy({ children: true });
+        } else {
+            requestAnimationFrame(animate);
+        }
+    };
+    requestAnimationFrame(animate);
+};
+
+// New Stab Effect for Daggers/Spears
+export const createStabEffect = (app: PIXI.Application, x: number, y: number, color: number = 0xffffff, directionX: number = 1) => {
+    const g = new PIXI.Graphics();
+    g.position.set(x, y - 30);
     app.stage.addChild(g);
+
+    // Draw a piercing cone/line
+    // Pointing right if directionX > 0
+    const len = 60 * directionX;
+    
+    g.moveTo(0, 0);
+    g.lineTo(len, 0);
+    g.lineTo(0, -5);
+    g.lineTo(len * 0.8, 0);
+    g.lineTo(0, 5);
+    g.lineTo(len, 0);
+    
+    // Core white, colored glow
+    g.stroke({ width: 3, color: 0xffffff });
+    g.fill({ color: color, alpha: 0.6 });
 
     let frame = 0;
     const animate = () => {
         if (!g.parent) return;
         frame++;
-        if (frame < 5) {
-            g.scale.y = frame / 5;
-        } else {
-            g.alpha -= 0.1;
-        }
+        
+        g.scale.x = 1 + frame * 0.2;
+        g.alpha -= 0.1;
 
         if (g.alpha <= 0) {
             if (g.parent) app.stage.removeChild(g);
@@ -291,11 +341,13 @@ export const createOrbProjectile = (
     
     // Draw projectile based on shape
     if (shape === 'ARROW') {
-        g.rect(-10, -1, 20, 2).fill(color); // Shaft
-        g.moveTo(10, 0).lineTo(6, -4).lineTo(6, 4).fill(color); // Head
+        g.rect(-15, -1, 30, 2).fill(0xcccccc); // Longer Shaft
+        g.moveTo(15, 0).lineTo(10, -5).lineTo(10, 5).fill(0xcccccc); // Head
         // Feathers
-        g.moveTo(-10, 0).lineTo(-14, -3).stroke({width: 1, color: 0xffffff});
-        g.moveTo(-10, 0).lineTo(-14, 3).stroke({width: 1, color: 0xffffff});
+        g.moveTo(-15, 0).lineTo(-20, -4).stroke({width: 1, color: 0xffffff});
+        g.moveTo(-15, 0).lineTo(-20, 4).stroke({width: 1, color: 0xffffff});
+        g.moveTo(-12, 0).lineTo(-17, -4).stroke({width: 1, color: 0xffffff});
+        g.moveTo(-12, 0).lineTo(-17, 4).stroke({width: 1, color: 0xffffff});
     } else if (shape === 'ORB') {
         g.circle(0, 0, size).fill(color);
         g.circle(0, 0, size * 1.5).stroke({ width: 2, color: color, alpha: 0.6 });
@@ -314,7 +366,8 @@ export const createOrbProjectile = (
     const dx = endX - startX;
     const dy = endY - startY;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    const speed = trajectory === 'LINEAR' ? 20 : 15;
+    // Arrow is very fast
+    const speed = shape === 'ARROW' ? 28 : (trajectory === 'LINEAR' ? 20 : 15);
     const duration = distance / speed;
     
     let progress = 0;
@@ -339,7 +392,7 @@ export const createOrbProjectile = (
             // Point towards direction of movement
             const vx = g.x - lastX;
             const vy = g.y - lastY;
-            if (vx !== 0 || vy !== 0) {
+            if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
                 g.rotation = Math.atan2(vy, vx);
             }
         } else {
@@ -351,25 +404,30 @@ export const createOrbProjectile = (
         lastY = g.y;
 
         // Enhanced Trail: Spawn particles
-        if (progress % 2 === 0 && shape !== 'ARROW') {
+        if (progress % 2 === 0) {
             const p = new PIXI.Graphics();
-            if (shape === 'ORB') {
+            if (shape === 'ARROW') {
+                // Wind trail for arrow
+                p.moveTo(0,0).lineTo(-10, 0).stroke({ width: 1, color: 0xffffff, alpha: 0.3});
+            } else if (shape === 'ORB') {
                 p.circle(0, 0, size * 0.5).fill({ color: color, alpha: 0.6 });
             } else {
                 p.circle(0, 0, size * 0.6).fill({ color: color, alpha: 0.5 });
             }
             
             // Random offset
-            const offset = (Math.random() - 0.5) * 10;
-            p.x = g.x + offset;
-            p.y = g.y + offset;
+            const offset = (Math.random() - 0.5) * 5;
+            p.x = g.x - (g.x - lastX) + offset;
+            p.y = g.y - (g.y - lastY) + offset;
+            if (shape === 'ARROW') p.rotation = g.rotation;
+
             app.stage.addChild(p);
 
             const trailFade = () => {
                 if (!p.parent) return;
-                p.alpha -= 0.05;
+                p.alpha -= 0.08;
                 p.scale.x *= 0.9;
-                p.scale.y *= 0.9;
+                
                 if (p.alpha <= 0) {
                     p.destroy();
                 } else {
