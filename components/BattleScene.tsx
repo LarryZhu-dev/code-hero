@@ -1,5 +1,4 @@
 
-
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { BattleState, StatType, BattleEvent, VisualShape } from '../types';
@@ -36,7 +35,6 @@ declare global {
 const safeDestroy = (app: PIXI.Application | undefined | null) => {
     if (!app) return;
     try {
-        // PIXI v8.x destroy() can throw if this.renderer is undefined/null.
         if (app.renderer) {
             app.destroy({ removeView: true, texture: true, context: true });
         } else {
@@ -51,19 +49,15 @@ const safeDestroy = (app: PIXI.Application | undefined | null) => {
 const getPixiApp = async () => {
     const w = window;
 
-    // 1. Check existing global app
     if (w.__CW_PIXI_APP__) {
-        // Check if renderer is valid (not destroyed)
         if (w.__CW_PIXI_APP__.renderer) {
             return w.__CW_PIXI_APP__;
         }
-        // If app exists but renderer is dead, destroy it cleanly
         console.warn("Found zombie PIXI App. Cleaning up...");
         safeDestroy(w.__CW_PIXI_APP__);
         w.__CW_PIXI_APP__ = null;
     }
 
-    // 2. Check in-progress initialization
     if (w.__CW_PIXI_INIT_PROMISE__) {
         try {
             return await w.__CW_PIXI_INIT_PROMISE__;
@@ -72,7 +66,6 @@ const getPixiApp = async () => {
         }
     }
 
-    // 3. Initialize new app
     w.__CW_PIXI_INIT_PROMISE__ = (async () => {
         const app = new PIXI.Application();
         try {
@@ -81,7 +74,6 @@ const getPixiApp = async () => {
                 height: 400, 
                 backgroundColor: 0x0f172a, // Slate-900
                 antialias: false,
-                // preference: 'webgl' // REMOVED: Causing "Extension type batcher already has a handler" in some environments
             });
             w.__CW_PIXI_APP__ = app;
             return app;
@@ -234,29 +226,23 @@ class PixelEntity {
 
         if (this.isMage) {
             // Staff
-            // Local coords relative to shoulder (-2*S, -9*S)
-            // Hand
             hg.rect(0, 0, 3 * S, 3 * S).fill(skin);
-            // Staff Handle
             hg.rect(1 * S, -6 * S, 1 * S, 14 * S).fill(0x8b4513);
-            // Staff Gem
             hg.circle(1.5 * S, -6 * S, 2.5 * S).fill(0x3b82f6);
             hg.circle(1.5 * S, -6 * S, 1.5 * S).fill(0xbfdbfe); // Shine
         } else {
             // Sword
-            // Hand
             hg.rect(0, 0, 3 * S, 3 * S).fill(skin);
-            // Sword Logic
             hg.rect(1 * S, -6 * S, 2 * S, 10 * S).fill(0x94a3b8); // Blade
             hg.rect(0 * S, 0 * S, 4 * S, 1 * S).fill(0x475569); // Guard
             hg.rect(1.5 * S, 1 * S, 1 * S, 3 * S).fill(0x8b4513); // Hilt
             
-            // Rotate sword slightly forward to look natural
+            // Rotate sword slightly forward
             hg.rotation = 0.5;
             hg.x = 2 * S;
         }
 
-        this.graphics = bg; // Reference for tinting
+        this.graphics = bg;
     }
 
     updateBars() {
@@ -267,15 +253,12 @@ class PixelEntity {
         // --- HP BAR ---
         const visualMaxHp = Math.max(this.maxHp, this.currentHp);
         
-        // HP Background
         g.rect(-barWidth/2 - 2, 0 - 2, barWidth + 4, barHeight + 4).fill(0x000000);
         g.rect(-barWidth/2, 0, barWidth, barHeight).fill(0x334155);
         
-        // HP Foreground
         const hpPct = visualMaxHp > 0 ? Math.max(0, this.currentHp / visualMaxHp) : 0;
         g.rect(-barWidth/2, 0, barWidth * hpPct, barHeight).fill(0xef4444);
 
-        // HP Ticks
         if (visualMaxHp > 0) {
             const tickStep = 100;
             const maxTicks = 2000;
@@ -301,14 +284,11 @@ class PixelEntity {
     }
 
     animateIdle(time: number) {
-        // Bobbing effect
         const yOffset = Math.sin((time + this.animOffset) * 0.1) * 4;
         this.characterGroup.y = -24 + yOffset;
         this.shadow.scale.set(1 + Math.sin((time + this.animOffset) * 0.1) * 0.1);
         
-        // Idle Hand Movement
         if (this.isMage) {
-            // Breathing with staff
             this.handGroup.rotation = Math.sin((time + this.animOffset) * 0.05) * 0.1;
         } else {
              this.handGroup.rotation = Math.sin((time + this.animOffset) * 0.1) * 0.05;
@@ -319,31 +299,24 @@ class PixelEntity {
         const startRot = this.handGroup.rotation;
         
         if (this.isMage) {
-            // Raise Staff
             for(let i=0; i<10; i++) {
                 this.handGroup.rotation -= 0.1; 
                 await new Promise(r => setTimeout(r, 16));
             }
-            // Hold
             await new Promise(r => setTimeout(r, 100));
-            // Lower
              for(let i=0; i<10; i++) {
                 this.handGroup.rotation += 0.1; 
                 await new Promise(r => setTimeout(r, 16));
             }
         } else {
-            // Swing Sword
-            // Wind up
             for(let i=0; i<5; i++) {
                 this.handGroup.rotation -= 0.2;
                 await new Promise(r => setTimeout(r, 16));
             }
-            // Slash down
             for(let i=0; i<5; i++) {
                 this.handGroup.rotation += 0.5;
                 await new Promise(r => setTimeout(r, 16));
             }
-            // Return
              for(let i=0; i<10; i++) {
                 this.handGroup.rotation = startRot + (startRot - this.handGroup.rotation) * (i/10);
                 await new Promise(r => setTimeout(r, 16));
@@ -354,7 +327,6 @@ class PixelEntity {
 
     async animateCast() {
         const startRot = this.handGroup.rotation;
-        // Raise hand/staff high
         for(let i=0; i<15; i++) {
             this.handGroup.rotation -= 0.15;
             await new Promise(r => setTimeout(r, 16));
@@ -369,179 +341,6 @@ class PixelEntity {
 }
 
 // --- Effects Helpers ---
-
-const createSlashEffect = (app: PIXI.Application, x: number, y: number) => {
-    const g = new PIXI.Graphics();
-    g.position.set(x, y - 40);
-    g.scale.set(1, 0); // Start thin
-    
-    // Draw a crescent
-    g.arc(0, 0, 40, Math.PI * 0.8, Math.PI * 2.2);
-    g.stroke({ width: 8, color: 0xffffff });
-    
-    app.stage.addChild(g);
-
-    let frame = 0;
-    const animate = () => {
-        frame++;
-        // Expand height
-        if (frame < 5) {
-            g.scale.y = frame / 5;
-        }
-        // Fade out
-        else {
-            g.alpha -= 0.1;
-        }
-
-        if (g.alpha <= 0) {
-            if (g.parent) app.stage.removeChild(g);
-            g.destroy();
-        } else {
-            requestAnimationFrame(animate);
-        }
-    };
-    requestAnimationFrame(animate);
-};
-
-const createMagicEffect = (app: PIXI.Application, x: number, y: number, color: number) => {
-    const g = new PIXI.Graphics();
-    g.position.set(x, y - 40);
-    app.stage.addChild(g);
-
-    let frame = 0;
-    const animate = () => {
-        frame++;
-        g.clear();
-        
-        // Rotating square
-        const size = frame * 4;
-        const alpha = 1 - (frame / 30);
-        
-        if (alpha <= 0) {
-            if (g.parent) app.stage.removeChild(g);
-            g.destroy();
-            return;
-        }
-
-        g.rect(-size/2, -size/2, size, size).stroke({ width: 4, color: color, alpha });
-        g.rotation += 0.2;
-
-        requestAnimationFrame(animate);
-    };
-    requestAnimationFrame(animate);
-};
-
-const createProjectile = (
-    app: PIXI.Application, 
-    startX: number, 
-    startY: number, 
-    endX: number, 
-    endY: number, 
-    color: number, 
-    value: number, 
-    trajectory: 'LINEAR' | 'PARABOLIC',
-    shape: VisualShape = 'CIRCLE',
-    onHit: () => void
-) => {
-    const g = new PIXI.Graphics();
-    app.stage.addChild(g);
-
-    // Size scaling: Base 8, grows with damage
-    const size = Math.min(30, 8 + Math.log(Math.max(1, value)) * 2);
-    
-    // Draw projectile based on shape
-    if (shape === 'SQUARE') {
-        g.rect(-size, -size, size * 2, size * 2).fill(color);
-        g.rect(-size * 1.5, -size * 1.5, size * 3, size * 3).fill({ color: color, alpha: 0.3 });
-    } else if (shape === 'STAR') {
-        g.star(0, 0, 5, size).fill(color);
-        g.star(0, 0, 5, size * 1.5).fill({ color: color, alpha: 0.3 });
-    } else if (shape === 'BEAM') {
-        g.rect(-size * 2, -size/2, size * 4, size).fill(color);
-        g.rect(-size * 2.5, -size, size * 5, size * 2).fill({ color: color, alpha: 0.3 });
-    } else if (shape === 'ORB') {
-        g.circle(0, 0, size).fill(color);
-        g.circle(0, 0, size * 1.5).stroke({ width: 2, color: color });
-    } else {
-        // Circle default
-        g.circle(0, 0, size).fill(color);
-        g.circle(0, 0, size * 1.5).fill({ color: color, alpha: 0.3 });
-    }
-
-    // If linear magic, add a tail
-    if (trajectory === 'LINEAR') {
-        g.circle(-size, 0, size * 0.8).fill({ color: color, alpha: 0.6 });
-    }
-
-    g.x = startX;
-    g.y = startY;
-
-    // Animation
-    const dx = endX - startX;
-    const dy = endY - startY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const speed = trajectory === 'LINEAR' ? 20 : 15;
-    const duration = distance / speed;
-    
-    let progress = 0;
-    
-    // Trail container
-    const trail: PIXI.Graphics[] = [];
-
-    const animate = () => {
-        progress += 1;
-        const ratio = Math.min(1, progress / duration);
-        
-        if (trajectory === 'LINEAR') {
-             g.x = startX + dx * ratio;
-             g.y = startY + dy * ratio;
-             // Rotate to face target if beam or square
-             if (shape === 'BEAM' || shape === 'SQUARE') {
-                 g.rotation = Math.atan2(dy, dx);
-             } else {
-                 g.rotation += 0.2;
-             }
-        } else {
-             g.x = startX + dx * ratio;
-             g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 50; // Arc
-             g.rotation += 0.2;
-        }
-
-        // Create trail dot
-        if (progress % 2 === 0) {
-            const t = new PIXI.Graphics();
-            if (shape === 'SQUARE') t.rect(-size/2, -size/2, size, size).fill({ color: color, alpha: 0.5 });
-            else t.circle(0, 0, size * 0.6).fill({ color: color, alpha: 0.5 });
-            
-            t.x = g.x;
-            t.y = g.y;
-            app.stage.addChild(t);
-            trail.push(t);
-        }
-
-        // Update trail fade
-        for (let i = trail.length - 1; i >= 0; i--) {
-            trail[i].alpha -= 0.1;
-            trail[i].scale.set(trail[i].scale.x * 0.9);
-            if (trail[i].alpha <= 0) {
-                if (trail[i].parent) app.stage.removeChild(trail[i]);
-                trail[i].destroy();
-                trail.splice(i, 1);
-            }
-        }
-
-        if (ratio >= 1) {
-            if (g.parent) app.stage.removeChild(g);
-            g.destroy();
-            // Cleanup remaining trail
-            trail.forEach(t => { if(t.parent) t.parent.removeChild(t); t.destroy(); });
-            onHit();
-        } else {
-            requestAnimationFrame(animate);
-        }
-    };
-    requestAnimationFrame(animate);
-};
 
 const createParticles = (
     app: PIXI.Application, 
@@ -576,6 +375,7 @@ const createParticles = (
             p.y += vy;
             life -= 0.03;
             p.scale.set(life);
+            p.rotation += 0.1;
 
             if (life <= 0) {
                 if (p.parent) app.stage.removeChild(p);
@@ -588,6 +388,354 @@ const createParticles = (
     }
 };
 
+const createSlashEffect = (app: PIXI.Application, x: number, y: number) => {
+    const g = new PIXI.Graphics();
+    g.position.set(x, y - 40);
+    g.scale.set(1, 0); 
+    
+    g.arc(0, 0, 40, Math.PI * 0.8, Math.PI * 2.2);
+    g.stroke({ width: 8, color: 0xffffff });
+    
+    app.stage.addChild(g);
+
+    let frame = 0;
+    const animate = () => {
+        frame++;
+        if (frame < 5) {
+            g.scale.y = frame / 5;
+        } else {
+            g.alpha -= 0.1;
+        }
+
+        if (g.alpha <= 0) {
+            if (g.parent) app.stage.removeChild(g);
+            g.destroy();
+        } else {
+            requestAnimationFrame(animate);
+        }
+    };
+    requestAnimationFrame(animate);
+};
+
+const createMagicEffect = (app: PIXI.Application, x: number, y: number, color: number) => {
+    const g = new PIXI.Graphics();
+    g.position.set(x, y - 40);
+    app.stage.addChild(g);
+
+    let frame = 0;
+    const animate = () => {
+        frame++;
+        g.clear();
+        
+        const size = frame * 4;
+        const alpha = 1 - (frame / 30);
+        
+        if (alpha <= 0) {
+            if (g.parent) app.stage.removeChild(g);
+            g.destroy();
+            return;
+        }
+
+        g.rect(-size/2, -size/2, size, size).stroke({ width: 4, color: color, alpha });
+        g.rotation += 0.2;
+
+        requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+};
+
+// --- NEW SPECIALIZED EFFECTS ---
+
+// 1. Star Barrage: Multiple stars flying in curves
+const createStarBarrage = (app: PIXI.Application, startX: number, startY: number, endX: number, endY: number, color: number, onComplete: () => void) => {
+    const starCount = 10; 
+    let activeStars = starCount;
+
+    for (let i = 0; i < starCount; i++) {
+        setTimeout(() => {
+            if (!app.stage) return; // Safety
+            const g = new PIXI.Graphics();
+            const size = 6 + Math.random() * 8;
+            g.star(0, 0, 5, size, size * 0.4).fill(color); 
+            g.x = startX;
+            g.y = startY;
+            app.stage.addChild(g);
+
+            // Control points for bezier curve
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+            const cpX = midX + (Math.random() - 0.5) * 400; // Wide spread
+            const cpY = midY + (Math.random() - 1.0) * 300; // Arching up/down
+
+            let t = 0;
+            const duration = 45 + Math.random() * 20; 
+
+            const animate = () => {
+                t += 1 / duration;
+                if (t >= 1) {
+                    if (g.parent) app.stage.removeChild(g);
+                    g.destroy();
+                    createParticles(app, endX, endY, color, 3, 'EXPLOSION'); // Mini explosion
+                    activeStars--;
+                    if (activeStars === 0) onComplete();
+                    return;
+                }
+                
+                // Quadratic Bezier
+                const invT = 1 - t;
+                g.x = invT * invT * startX + 2 * invT * t * cpX + t * t * endX;
+                g.y = invT * invT * startY + 2 * invT * t * cpY + t * t * endY;
+                
+                g.rotation += 0.3; 
+                g.scale.set(1 - (t * 0.3));
+
+                // Trail particles
+                if (Math.random() > 0.5) {
+                    const trail = new PIXI.Graphics();
+                    trail.circle(0,0, 2).fill({color, alpha: 0.5});
+                    trail.x = g.x; trail.y = g.y;
+                    app.stage.addChild(trail);
+                    // Fade trail
+                    const fade = () => {
+                        trail.alpha -= 0.1;
+                        if(trail.alpha <= 0) { trail.destroy(); } else requestAnimationFrame(fade);
+                    }
+                    requestAnimationFrame(fade);
+                }
+
+                requestAnimationFrame(animate);
+            };
+            requestAnimationFrame(animate);
+
+        }, i * 60); 
+    }
+};
+
+// 2. Falling Squares: Rain down from the sky
+const createFallingSquares = (app: PIXI.Application, targetX: number, targetY: number, color: number, onComplete: () => void) => {
+    const count = 8;
+    let landed = 0;
+
+    for (let i = 0; i < count; i++) {
+        setTimeout(() => {
+            if (!app.stage) return;
+            const g = new PIXI.Graphics();
+            const size = 15 + Math.random() * 25;
+            
+            // Draw square with inner detail
+            g.rect(-size/2, -size/2, size, size).fill(color);
+            g.rect(-size/4, -size/4, size/2, size/2).fill({color: 0xffffff, alpha: 0.4});
+            
+            // Start high above
+            const startX = targetX + (Math.random() - 0.5) * 150;
+            const startY = targetY - 400 - (Math.random() * 200);
+            
+            g.x = startX;
+            g.y = startY;
+            g.rotation = Math.random() * Math.PI;
+            app.stage.addChild(g);
+
+            let vy = 0;
+            const gravity = 0.8;
+            
+            const animate = () => {
+                vy += gravity;
+                g.y += vy;
+                g.rotation += 0.05;
+                // Lerp X towards target
+                g.x += (targetX - g.x) * 0.02;
+
+                if (g.y >= targetY - 20) { 
+                    if (g.parent) app.stage.removeChild(g);
+                    g.destroy();
+                    createParticles(app, g.x, targetY, color, 6, 'EXPLOSION');
+                    landed++;
+                    if (landed === count) onComplete();
+                } else {
+                    requestAnimationFrame(animate);
+                }
+            };
+            requestAnimationFrame(animate);
+        }, i * 120);
+    }
+};
+
+// 3. Laser Beam: Rapid fade out glow
+const createLaserBeam = (app: PIXI.Application, startX: number, startY: number, endX: number, endY: number, color: number, onComplete: () => void) => {
+    const container = new PIXI.Container();
+    app.stage.addChild(container);
+
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const angle = Math.atan2(dy, dx);
+
+    container.x = startX;
+    container.y = startY;
+    container.rotation = angle;
+
+    const beam = new PIXI.Graphics();
+    container.addChild(beam);
+
+    // Initial Flash at source
+    createParticles(app, startX, startY, color, 10, 'EXPLOSION');
+    // Hit Flash
+    createParticles(app, endX, endY, color, 15, 'EXPLOSION');
+
+    let frames = 0;
+    const duration = 20; // Fast
+
+    const animate = () => {
+        frames++;
+        const progress = frames / duration;
+        
+        if (progress >= 1) {
+            container.destroy({children: true});
+            onComplete();
+            return;
+        }
+
+        const width = 20 * (1 - progress); // Tapering over time
+        
+        beam.clear();
+        // Core
+        beam.moveTo(0, 0).lineTo(dist, 0).stroke({ width: width * 0.4, color: 0xffffff, cap: 'round', alpha: 1 - progress });
+        // Glow
+        beam.moveTo(0, 0).lineTo(dist, 0).stroke({ width: width, color: color, cap: 'round', alpha: (1 - progress) * 0.7 });
+        // Outer Haze
+        beam.moveTo(0, 0).lineTo(dist, 0).stroke({ width: width * 2, color: color, cap: 'round', alpha: (1 - progress) * 0.3 });
+
+        requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+};
+
+// 4. Default Projectile (Orb/Circle) with enhanced Trail
+const createOrbProjectile = (
+    app: PIXI.Application, 
+    startX: number, 
+    startY: number, 
+    endX: number, 
+    endY: number, 
+    color: number, 
+    value: number, 
+    trajectory: 'LINEAR' | 'PARABOLIC',
+    shape: VisualShape = 'CIRCLE',
+    onComplete: () => void
+) => {
+    const g = new PIXI.Graphics();
+    app.stage.addChild(g);
+
+    // Size scaling
+    const size = Math.min(30, 8 + Math.log(Math.max(1, value)) * 2);
+    
+    // Draw projectile based on remaining shapes (ORB / CIRCLE / others fall back here)
+    if (shape === 'ORB') {
+        g.circle(0, 0, size).fill(color);
+        g.circle(0, 0, size * 1.5).stroke({ width: 2, color: color, alpha: 0.6 });
+        // Glow center
+        g.circle(0, 0, size * 0.5).fill({ color: 0xffffff, alpha: 0.8 });
+    } else {
+        // Circle default
+        g.circle(0, 0, size).fill(color);
+        g.circle(0, 0, size * 1.5).fill({ color: color, alpha: 0.3 });
+    }
+
+    g.x = startX;
+    g.y = startY;
+
+    // Animation
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const speed = trajectory === 'LINEAR' ? 20 : 15;
+    const duration = distance / speed;
+    
+    let progress = 0;
+    
+    const animate = () => {
+        progress += 1;
+        const ratio = Math.min(1, progress / duration);
+        
+        if (trajectory === 'LINEAR') {
+             g.x = startX + dx * ratio;
+             g.y = startY + dy * ratio;
+             g.rotation += 0.2;
+        } else {
+             g.x = startX + dx * ratio;
+             g.y = startY + dy * ratio - Math.sin(ratio * Math.PI) * 80; // Arc
+             g.rotation += 0.2;
+        }
+
+        // Enhanced Trail: Spawn particles
+        if (progress % 2 === 0) {
+            const p = new PIXI.Graphics();
+            if (shape === 'ORB') {
+                p.circle(0, 0, size * 0.5).fill({ color: color, alpha: 0.6 });
+            } else {
+                p.circle(0, 0, size * 0.6).fill({ color: color, alpha: 0.5 });
+            }
+            
+            // Random offset
+            const offset = (Math.random() - 0.5) * 10;
+            p.x = g.x + offset;
+            p.y = g.y + offset;
+            app.stage.addChild(p);
+
+            const trailFade = () => {
+                p.alpha -= 0.05;
+                p.scale.x *= 0.9;
+                p.scale.y *= 0.9;
+                if (p.alpha <= 0) {
+                    p.destroy();
+                } else {
+                    requestAnimationFrame(trailFade);
+                }
+            };
+            requestAnimationFrame(trailFade);
+        }
+
+        if (ratio >= 1) {
+            if (g.parent) app.stage.removeChild(g);
+            g.destroy();
+            onComplete();
+        } else {
+            requestAnimationFrame(animate);
+        }
+    };
+    requestAnimationFrame(animate);
+};
+
+// Dispatcher Function
+const createProjectile = (
+    app: PIXI.Application, 
+    startX: number, 
+    startY: number, 
+    endX: number, 
+    endY: number, 
+    color: number, 
+    value: number, 
+    trajectory: 'LINEAR' | 'PARABOLIC',
+    shape: VisualShape = 'CIRCLE',
+    onHit: () => void
+) => {
+    if (shape === 'STAR') {
+        createStarBarrage(app, startX, startY, endX, endY, color, onHit);
+        return;
+    }
+    if (shape === 'SQUARE') {
+        createFallingSquares(app, endX, endY, color, onHit);
+        return;
+    }
+    if (shape === 'BEAM') {
+        createLaserBeam(app, startX, startY, endX, endY, color, onHit);
+        return;
+    }
+
+    // Default to Orb/Circle logic
+    createOrbProjectile(app, startX, startY, endX, endY, color, value, trajectory, shape, onHit);
+};
+
 const createAuraEffect = (
     app: PIXI.Application,
     x: number,
@@ -595,18 +743,15 @@ const createAuraEffect = (
     color: number,
     direction: 'UP' | 'DOWN'
 ) => {
-    // Spawn multiple particles over time to create an "aura" feel
     const particleCount = 20;
     
     for(let i = 0; i < particleCount; i++) {
         setTimeout(() => {
-            if (!app.stage) return; // Safety check if destroyed
+            if (!app.stage) return; 
             const p = new PIXI.Graphics();
             
-            // Draw a soft glowing shape
             p.circle(0,0, 4).fill({ color, alpha: 0.8 });
             
-            // Random start position around the entity
             const offsetX = (Math.random() - 0.5) * 40;
             const startY = direction === 'UP' ? y : y - 80;
             
@@ -620,7 +765,7 @@ const createAuraEffect = (
             const animate = () => {
                 if (!p.parent) return;
                 p.y += speed;
-                p.y += Math.sin(p.x * 0.1) * 0.5; // Slight wobble
+                p.y += Math.sin(p.x * 0.1) * 0.5;
                 alpha -= 0.02;
                 p.alpha = alpha;
                 
@@ -633,7 +778,7 @@ const createAuraEffect = (
             };
             requestAnimationFrame(animate);
 
-        }, i * 50); // Stagger spawn
+        }, i * 50); 
     }
 };
 
@@ -659,7 +804,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 
                 appRef.current = app;
 
-                // Attach Canvas (if not already attached to this container)
                 if (app.canvas.parentElement !== containerRef.current) {
                     if (app.canvas.parentElement) {
                         app.canvas.parentElement.removeChild(app.canvas);
@@ -667,7 +811,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     containerRef.current.appendChild(app.canvas);
                 }
 
-                // Clear previous stage
                 app.stage.removeChildren().forEach(c => c.destroy({ children: true }));
 
                 // -- Background --
@@ -691,7 +834,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 // -- Characters --
                 const maxHp1 = getTotalStat(gameState.p1, StatType.HP);
                 const maxMana1 = getTotalStat(gameState.p1, StatType.MANA);
-                // Check Mage Condition (AP >= 2 * AD)
                 const p1AD = getTotalStat(gameState.p1, StatType.AD);
                 const p1AP = getTotalStat(gameState.p1, StatType.AP);
                 const p1IsMage = p1AP >= (p1AD * 2) && p1AP > 0;
@@ -759,7 +901,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
 
         init();
 
-        // --- Cleanup ---
         return () => {
             isCancelled = true;
             if (appRef.current) {
@@ -781,21 +922,18 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
             }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only run once on mount
+    }, []);
 
-    // --- State Sync (For Regen/Non-Event changes) ---
+    // --- State Sync ---
     useEffect(() => {
         if (!visualsRef.current) return;
         const { p1, p2 } = visualsRef.current;
         
-        // Sync Max Stats (in case of buffs)
         p1.maxHp = getTotalStat(gameState.p1, StatType.HP);
         p1.maxMana = getTotalStat(gameState.p1, StatType.MANA);
         p2.maxHp = getTotalStat(gameState.p2, StatType.HP);
         p2.maxMana = getTotalStat(gameState.p2, StatType.MANA);
 
-        // Sync Current Stats (Target) - Only if not currently executing animations
-        // This ensures passive regen (which happens at start of turn) is reflected visually
         if (gameState.phase !== 'EXECUTING') {
             p1.targetHp = gameState.p1.currentHp;
             p1.targetMana = gameState.p1.currentMana;
@@ -810,10 +948,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
 
         const safetyTimer = setTimeout(() => {
             if (onAnimationsComplete) onAnimationsComplete();
-        }, 8000); // Increased safety timeout for projectile flight time
+        }, 8000); 
 
         const processAnimations = async () => {
-            // Wait for app to be ready (async check)
             let attempts = 0;
             while ((!appRef.current || !visualsRef.current) && attempts < 10) {
                 await new Promise(r => setTimeout(r, 100));
@@ -849,14 +986,14 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 const basicText = new PIXI.Text({ text, style });
                 basicText.x = x - basicText.width / 2;
                 basicText.y = y - 100;
-                basicText.resolution = 2; // sharper text
+                basicText.resolution = 2; 
                 app.stage.addChild(basicText);
 
                 let velY = -3;
                 let opacity = 1.0;
                 const animateText = () => {
                     basicText.y += velY;
-                    velY += 0.15; // gravity
+                    velY += 0.15; 
                     
                     if (velY > 0) opacity -= 0.05;
                     basicText.alpha = opacity;
@@ -875,15 +1012,12 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 const source = evt.sourceId ? getEntity(evt.sourceId) : null;
                 const target = evt.targetId ? getEntity(evt.targetId) : null;
 
-                // Dynamic pause based on event type
                 const pause = evt.type === 'TEXT' ? 50 : 300;
                 
-                // For Projectiles, we wait for impact (logic handled inside)
                 if (evt.type === 'PROJECTILE' && source && target) {
                     await new Promise<void>(resolve => {
                         const isMagic = evt.projectileType === 'MAGIC';
                         
-                        // User customized visual
                         const customColor = evt.visual?.color ? parseInt(evt.visual.color.replace('#', '0x')) : null;
                         const customShape = evt.visual?.shape || 'CIRCLE';
                         
@@ -906,9 +1040,8 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                             resolve
                         );
                     });
-                    // Minimal pause after impact before damage number
                     await new Promise(r => setTimeout(r, 50));
-                    continue; // Skip the generic pause
+                    continue; 
                 }
 
                 await new Promise(r => setTimeout(r, pause));
@@ -917,32 +1050,25 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     const startX = source.container.x;
                     const endX = target.container.x > startX ? target.container.x - 80 : target.container.x + 80;
                     
-                    // Dash
                     for (let i = 0; i < 8; i++) {
                         source.container.x += (endX - startX) / 8;
                         await new Promise(r => setTimeout(r, 16));
                     }
                     
-                    // Trigger hand animation (Melee Swing)
                     source.animateAttack();
 
-                    // Slash visual
                     createSlashEffect(app, target.container.x, target.container.y);
                     
-                    // Return
                     await new Promise(r => setTimeout(r, 100));
                     source.container.x = startX;
                 } 
                 else if (evt.type === 'SKILL_EFFECT' && source) {
                     spawnText(evt.skillName || 'CAST', source.container.x, source.container.y - 40, '#fbbf24');
-                    // Trigger Cast Animation
                     if (evt.skillName === '普通攻击') {
-                        source.animateAttack(); // Magic Basic Attack
+                        source.animateAttack(); 
                     } else {
                         source.animateCast();
                     }
-                    
-                    // Charge Effect
                     createMagicEffect(app, source.container.x, source.container.y, 0xfbbf24);
                     await new Promise(r => setTimeout(r, 400));
                 }
@@ -950,15 +1076,12 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     if (evt.value) target.targetHp -= evt.value;
                     spawnText(evt.value?.toString() || '', target.container.x, target.container.y, evt.color || '#ef4444');
                     
-                    // Particles - Scaled by damage
                     const particleCount = Math.min(20, Math.floor((evt.value || 0) / 50) + 5);
                     createParticles(app, target.container.x, target.container.y, 0xef4444, particleCount, 'EXPLOSION');
 
-                    // Flash Red
                     const originalTint = target.graphics.tint;
                     target.graphics.tint = 0xff0000;
                     
-                    // Shake
                     const baseX = target.container.x;
                     for(let i=0; i<6; i++) {
                         target.container.x = baseX + (Math.random() - 0.5) * 20;
@@ -983,11 +1106,9 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                      }
                 }
                 else if (evt.type === 'STAT_CHANGE' && target) {
-                    // Floating text for stat change
                     let colorHex = '#ffffff';
                     let particleColor = 0xffffff;
                     
-                    // User Custom Color for this specific effect
                     if (evt.visual?.color) {
                         colorHex = evt.visual.color;
                         particleColor = parseInt(colorHex.replace('#', '0x'));
@@ -999,7 +1120,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     
                     spawnText(evt.text || 'STAT', target.container.x, target.container.y - 20, colorHex);
                     
-                    // Aura Effect (Up or Down based on +/-)
                     if (evt.value && evt.value < 0) {
                         createAuraEffect(app, target.container.x, target.container.y, particleColor, 'DOWN');
                     } else {
