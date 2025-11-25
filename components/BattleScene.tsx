@@ -127,7 +127,7 @@ class PixelEntity {
         this.currentHp = maxHp;
         this.currentMana = maxMana;
         this.targetHp = maxHp;
-        this.targetMana = maxHp;
+        this.targetMana = maxMana;
 
         // Shadow
         this.shadow = new PIXI.Graphics();
@@ -193,19 +193,49 @@ class PixelEntity {
         const barHeight = 8;
         const g = new PIXI.Graphics();
         
+        // --- HP BAR ---
+        // Use effective max to prevent overflow, keeping width fixed at 80px
+        const visualMaxHp = Math.max(this.maxHp, this.currentHp);
+        
         // HP Background
         g.rect(-barWidth/2 - 2, 0 - 2, barWidth + 4, barHeight + 4).fill(0x000000);
         g.rect(-barWidth/2, 0, barWidth, barHeight).fill(0x334155);
         
         // HP Foreground
-        const hpPct = this.maxHp > 0 ? Math.max(0, this.currentHp / this.maxHp) : 0;
+        const hpPct = visualMaxHp > 0 ? Math.max(0, this.currentHp / visualMaxHp) : 0;
         g.rect(-barWidth/2, 0, barWidth * hpPct, barHeight).fill(0xef4444);
 
+        // HP Ticks (Method 1.1)
+        if (visualMaxHp > 0) {
+            // Draw a tick every 100 HP. Density increases as total HP increases.
+            // Limit loop to prevent performance issues with extreme numbers (cap at 200 ticks ~ 20k HP)
+            const tickStep = 100;
+            const maxTicks = 200; 
+            
+            let ticksDrawn = 0;
+            for (let v = tickStep; v < visualMaxHp && ticksDrawn < maxTicks; v += tickStep) {
+                const x = (v / visualMaxHp) * barWidth - (barWidth / 2);
+                
+                const isMajor = v % 1000 === 0;
+                // Major tick: 60% height, Minor tick: 30% height
+                const h = isMajor ? barHeight * 0.6 : barHeight * 0.3;
+                const y = (barHeight - h) / 2;
+                
+                // Draw tick line
+                g.rect(x, y, 1, h).fill({ color: 0x000000, alpha: 0.5 });
+                ticksDrawn++;
+            }
+        }
+
+        // --- MANA BAR ---
         // Mana Background
         g.rect(-barWidth/2 - 2, 12 - 2, barWidth + 4, 4 + 4).fill(0x000000);
-        
+        g.rect(-barWidth/2, 12, barWidth, 4).fill(0x334155);
+
         // Mana Foreground
-        const mpPct = this.maxMana > 0 ? Math.max(0, this.currentMana / this.maxMana) : 0;
+        // Ensure we visualize real current vs real max (or effective max)
+        const visualMaxMana = Math.max(this.maxMana, this.currentMana);
+        const mpPct = visualMaxMana > 0 ? Math.max(0, this.currentMana / visualMaxMana) : 0;
         g.rect(-barWidth/2, 12, barWidth * mpPct, 4).fill(0x3b82f6);
 
         this.hpBar.removeChildren();
@@ -329,8 +359,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 const app = await getPixiApp();
                 
                 if (isCancelled) {
-                    // If component unmounted while we were initing, we don't need to do anything with the app
-                    // because it is a singleton. Just don't attach listeners.
                     return;
                 }
                 
@@ -345,7 +373,6 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                 }
 
                 // Clear previous stage
-                // We use removeChildren to get the list, then destroy them to free GPU memory
                 app.stage.removeChildren().forEach(c => c.destroy({ children: true }));
 
                 // -- Background --
@@ -434,16 +461,13 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
             if (appRef.current) {
                 const app = appRef.current;
                 
-                // Stop ticker updates
                 if (tickerFuncRef.current) {
                     app.ticker.remove(tickerFuncRef.current);
                     tickerFuncRef.current = null;
                 }
 
-                // Cleanup stage content (but do NOT destroy the app itself)
                 app.stage.removeChildren().forEach(c => c.destroy({ children: true }));
                 
-                // Detach canvas from DOM
                 if (containerRef.current && containerRef.current.contains(app.canvas)) {
                     containerRef.current.removeChild(app.canvas);
                 }
@@ -454,6 +478,27 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Only run once on mount
+
+    // --- State Sync (For Regen/Non-Event changes) ---
+    useEffect(() => {
+        if (!visualsRef.current) return;
+        const { p1, p2 } = visualsRef.current;
+        
+        // Sync Max Stats (in case of buffs)
+        p1.maxHp = getTotalStat(gameState.p1, StatType.HP);
+        p1.maxMana = getTotalStat(gameState.p1, StatType.MANA);
+        p2.maxHp = getTotalStat(gameState.p2, StatType.HP);
+        p2.maxMana = getTotalStat(gameState.p2, StatType.MANA);
+
+        // Sync Current Stats (Target) - Only if not currently executing animations
+        // This ensures passive regen (which happens at start of turn) is reflected visually
+        if (gameState.phase !== 'EXECUTING') {
+            p1.targetHp = gameState.p1.currentHp;
+            p1.targetMana = gameState.p1.currentMana;
+            p2.targetHp = gameState.p2.currentHp;
+            p2.targetMana = gameState.p2.currentMana;
+        }
+    }, [gameState]);
 
     // --- Event Processing ---
     useEffect(() => {
@@ -579,7 +624,12 @@ const BattleScene: React.FC<Props> = ({ gameState, onAnimationsComplete, onEntit
                     createParticles(app, target.container.x, target.container.y, 0x4ade80, 5);
                 }
                 else if (evt.type === 'MANA' && target) {
-                     if (evt.value) target.targetMana += evt.value;
+                     if (evt.value) {
+                         target.targetMana += evt.value;
+                         const val = evt.value;
+                         const text = val > 0 ? `+${val} MP` : `${val} MP`;
+                         spawnText(text, target.container.x, target.container.y, '#3b82f6');
+                     }
                 }
             }
             

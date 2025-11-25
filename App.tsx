@@ -1133,7 +1133,7 @@ const App: React.FC = () => {
                                                             `}
                                                         >
                                                             {isPassive && (
-                                                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500 whitespace-nowrap z-20">
+                                                                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-900 text-indigo-200 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500 whitespace-nowrap z-20 shadow-sm">
                                                                     被动
                                                                 </div>
                                                             )}
@@ -1153,7 +1153,7 @@ const App: React.FC = () => {
                                                             </div>
 
                                                             {isSelected && (
-                                                                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-blue-400"></div>
+                                                                <div className={`absolute left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent ${isPassive ? '-top-2 border-t-[6px] border-t-indigo-400' : '-bottom-2 border-b-[6px] border-b-blue-400'}`}></div>
                                                             )}
                                                         </div>
                                                     );
